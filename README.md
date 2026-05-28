@@ -272,4 +272,4 @@ flowchart LR
 
 ## License
 
-Apache-2.0
+GPL-3.0
