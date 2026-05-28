@@ -1,4 +1,5 @@
-# Declarative policy for tool and network actions (evaluated before execution).
+# Example policy overlay when enabling write_file in config.
+# Copy/adapt after signing for your deployment trust store.
 version: "1"
 
 defaults:
@@ -36,14 +37,14 @@ rules:
         - curl
         - wget
 
-  - id: workspace-read-only-paths
+  - id: workspace-read
     effect: allow
     actions:
       - fs.read
     when:
       path.under_workspace: true
 
-  - id: workspace-writes
+  - id: workspace-write
     effect: allow
     actions:
       - fs.write

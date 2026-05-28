@@ -14,6 +14,7 @@ inference:
   n_gpu_layers: 0
   temperature: 0.2
   max_tokens: 2048
+  chat_template: generic # generic | chatml | llama3 | mistral
   # openai_compat only — must be loopback
   base_url: "http://127.0.0.1:8080/v1"
   api_key_env: AIRGAP_INFERENCE_API_KEY
@@ -24,6 +25,7 @@ agent:
   max_task_chars: 32000
   max_invalid_tool_calls: 3
   system_prompt_path: null # uses built-in secure default
+  response_format: text # text | json
 
 api:
   require_token: true
@@ -32,10 +34,27 @@ api:
   capability_token_env: AIRGAP_API_HMAC_KEY
   capability_token_header: X-Airgap-Capability-Token
   enforce_capability_token_scope: true
-  replay_protection: false
+  replay_protection: true
   replay_cache_max_entries: 5000
+  sessions:
+    enabled: true
+    max_sessions: 100
+    max_messages_per_session: 50
+    ttl_seconds: 3600
+  metrics:
+    enabled: true
 
 security:
+  max_write_bytes: 262144
+  write_allowed_extensions:
+    - .txt
+    - .md
+    - .json
+    - .yaml
+    - .yml
+    - .py
+    - .log
+    - .toml
   max_read_bytes: 1048576
   max_list_entries: 500
   max_search_hits: 50

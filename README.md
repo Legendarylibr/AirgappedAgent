@@ -25,6 +25,7 @@ No cloud APIs, no telemetry, no outbound network at runtime.
 - **Dev mode**: Blocked under `/etc/airgap-agent` and `/var/lib/airgap-agent` unless `AIRGAP_ALLOW_DEV=1`.
 - **Budgets (per-run)**: total tool calls, total bytes read, and total python execs are capped (defense-in-depth against DoS and over-broad scanning).
 - **Canaries**: run `airgap-agent canary` against your configured backend to catch parser/prompt regressions.
+- **Harness guide**: see `docs/HARNESS.md` for chat sessions, eval, metrics, structured JSON output, and opt-in writes.
 
 ## Security model
 
@@ -90,6 +91,26 @@ echo '{"note": "hello"}' > workspace/note.txt
 
 airgap-agent run "List files in the workspace and summarize note.txt" --dev
 airgap-agent health --dev
+airgap-agent init
+airgap-agent chat --dev
+airgap-agent eval eval/fixtures --dev
+```
+
+### Loopback API (sessions + metrics)
+
+```bash
+export AIRGAP_API_TOKEN=$(openssl rand -hex 32)
+export AIRGAP_API_HMAC_KEY=$(openssl rand -hex 32)
+airgap-agent serve --dev
+
+# Create session → run with history
+curl -s -H "Authorization: Bearer $AIRGAP_API_TOKEN" -H "X-Airgap-Capability-Token: $(airgap-agent mint-token)" \
+  -X POST http://127.0.0.1:8741/v1/sessions
+curl -s -H "Authorization: Bearer $AIRGAP_API_TOKEN" -H "X-Airgap-Capability-Token: $(airgap-agent mint-token)" \
+  -H "Content-Type: application/json" \
+  -d '{"task":"List workspace files","session_id":"<id>"}' \
+  http://127.0.0.1:8741/v1/agent/run
+curl -s -H "Authorization: Bearer $AIRGAP_API_TOKEN" http://127.0.0.1:8741/metrics
 ```
 
 ## Docker-isolated Python tool (recommended for production)

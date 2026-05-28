@@ -26,7 +26,11 @@ from airgap_agent.deployment import (
 )
 from airgap_agent.deployment.bundle import verify_signed_artifact
 from airgap_agent.inference import create_backend
+from airgap_agent.inference.base import ChatMessage
 from airgap_agent.security import AuditLogger
+from airgap_agent.agent.eval import load_eval_cases, run_eval_cases
+from airgap_agent.agent.metrics import MetricsRegistry
+from airgap_agent.agent.session import SessionStore
 from airgap_agent.canaries import run_canaries
 
 app = typer.Typer(
@@ -82,7 +86,9 @@ def run(
     harness = AgentHarness(cfg, backend, policy, audit)
     result = harness.run(task)
     console.print(Panel(result.answer, title="Agent result", border_style="green"))
-    console.print(f"iterations={result.iterations} tool_calls={result.tool_calls}")
+    console.print(
+        f"run_id={result.run_id} iterations={result.iterations} tool_calls={result.tool_calls}"
+    )
 
 
 @app.command()
@@ -98,6 +104,106 @@ def health(
     backend = create_backend(cfg)
     report = health_report(cfg, backend)
     console.print(JSON(json.dumps(report, indent=2)))
+
+
+@app.command()
+def init(
+    workspace: Path = typer.Option(Path("./workspace"), "--workspace", "-w"),
+    models: Path = typer.Option(Path("./models"), "--models", "-m"),
+    trust: Path = typer.Option(Path("./trust"), "--trust", "-t"),
+    audit_dir: Path = typer.Option(Path("./.airgap"), "--audit-dir"),
+) -> None:
+    """Initialize local directories for offline development or staging."""
+    for path in (workspace, models, trust, audit_dir):
+        path.mkdir(parents=True, exist_ok=True)
+    readme = workspace / "README.txt"
+    if not readme.exists():
+        readme.write_text(
+            "Airgap agent workspace — place files here for tool access.\n",
+            encoding="utf-8",
+        )
+    console.print(f"[green]Ready[/green] workspace={workspace} models={models} trust={trust}")
+
+
+@app.command()
+def chat(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    dev: bool = typer.Option(False, "--dev"),
+    session_id: Optional[str] = typer.Option(None, "--session", help="Resume session id."),
+) -> None:
+    """Interactive multi-turn agent loop (loopback CLI, no network)."""
+    _setup_logging()
+    cfg = _load(config, dev)
+    try:
+        policy = ensure_runtime_ready(cfg, dev=dev)
+    except BootstrapError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    backend = create_backend(cfg)
+    audit = AuditLogger(cfg.audit)
+    harness = AgentHarness(cfg, backend, policy, audit)
+    store = SessionStore(
+        max_sessions=cfg.api.sessions.max_sessions,
+        max_messages=cfg.api.sessions.max_messages_per_session,
+        ttl_seconds=cfg.api.sessions.ttl_seconds,
+    )
+    sid = session_id or store.create()
+    console.print(f"Session {sid} — type 'exit' to quit, 'reset' for new session.")
+
+    while True:
+        try:
+            line = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            break
+        if not line:
+            continue
+        if line.lower() in ("exit", "quit"):
+            break
+        if line.lower() == "reset":
+            sid = store.create()
+            console.print(f"New session {sid}")
+            continue
+
+        history = store.get_history(sid) or []
+        result = harness.run(line, history=history)
+        store.append(
+            sid,
+            [
+                ChatMessage(role="user", content=line),
+                ChatMessage(role="assistant", content=result.answer),
+            ],
+        )
+        console.print(Panel(result.answer, title="assistant", border_style="cyan"))
+
+
+@app.command()
+def eval_cmd(
+    cases_path: Path = typer.Argument(
+        Path("eval/fixtures"),
+        help="YAML file or directory of eval cases.",
+    ),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    dev: bool = typer.Option(False, "--dev"),
+    with_backend: bool = typer.Option(False, "--with-backend", help="Run backend_completion cases."),
+) -> None:
+    """Run declarative security/behavior eval cases (offline)."""
+    _setup_logging()
+    cfg = _load(config, dev)
+    backend = create_backend(cfg) if with_backend else None
+    cases = load_eval_cases(cases_path)
+    results = run_eval_cases(cases, config=cfg, backend=backend)
+    failed = [r for r in results if not r.ok]
+    payload = {
+        "ok": len(failed) == 0,
+        "passed": sum(1 for r in results if r.ok),
+        "failed": len(failed),
+        "results": [r.__dict__ for r in results],
+    }
+    console.print(JSON(json.dumps(payload, indent=2)))
+    if failed:
+        raise typer.Exit(1)
 
 
 @app.command("canary")
@@ -352,6 +458,12 @@ def serve(
     backend = create_backend(cfg)
     audit = AuditLogger(cfg.audit)
     used_nonces: dict[str, int] = {}
+    metrics = MetricsRegistry()
+    sessions = SessionStore(
+        max_sessions=cfg.api.sessions.max_sessions,
+        max_messages=cfg.api.sessions.max_messages_per_session,
+        ttl_seconds=cfg.api.sessions.ttl_seconds,
+    )
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -372,17 +484,32 @@ def serve(
             self._json(401, {"error": "unauthorized"})
 
         def do_GET(self) -> None:
+            metrics.inc_api_request()
             if not verify_api_token(cfg, self._headers_map()):
                 self._unauthorized()
                 return
             if self.path == "/health":
                 self._json(200, health_report(cfg, backend))
+            elif self.path == "/metrics" and cfg.api.metrics.enabled:
+                snap = metrics.snapshot()
+                snap.sessions_active = sessions.stats()["active_sessions"]
+                body = snap.to_prometheus().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self._json(404, {"error": "not found"})
 
         def do_POST(self) -> None:
+            metrics.inc_api_request()
             if not verify_api_token(cfg, self._headers_map()):
                 self._unauthorized()
+                return
+            if self.path == "/v1/sessions" and cfg.api.sessions.enabled:
+                sid = sessions.create()
+                self._json(201, {"session_id": sid})
                 return
             if self.path != "/v1/agent/run":
                 self._json(404, {"error": "not found"})
@@ -436,6 +563,14 @@ def serve(
                 self._json(400, {"error": "task required"})
                 return
 
+            history: list[ChatMessage] | None = None
+            session_id = data.get("session_id")
+            if session_id and cfg.api.sessions.enabled:
+                history = sessions.get_history(str(session_id))
+                if history is None:
+                    self._json(404, {"error": "unknown session_id"})
+                    return
+
             # Apply request scope by intersecting global config with signed claims.
             scoped = cfg.model_copy(deep=True)
             token_caps = set(claims.get("caps", []))
@@ -456,16 +591,30 @@ def serve(
                 int(budgets.get("max_total_python_execs_per_run", scoped.security.max_total_python_execs_per_run)),
             )
 
+            metrics.inc_run()
             harness = AgentHarness(scoped, backend, policy, audit)
             try:
-                result = harness.run(task)
+                result = harness.run(task, history=history)
             except ValueError as exc:
+                metrics.inc_run_failed()
                 self._json(400, {"error": str(exc)})
                 return
+            metrics.inc_tool_calls(result.tool_calls)
+            if session_id and cfg.api.sessions.enabled:
+                sessions.append(
+                    str(session_id),
+                    [
+                        ChatMessage(role="user", content=task),
+                        ChatMessage(role="assistant", content=result.answer),
+                    ],
+                )
             self._json(
                 200,
                 {
                     "answer": result.answer,
+                    "structured": result.structured,
+                    "run_id": result.run_id,
+                    "session_id": session_id,
                     "iterations": result.iterations,
                     "tool_calls": result.tool_calls,
                     "caps": scoped.security.allowed_capabilities,

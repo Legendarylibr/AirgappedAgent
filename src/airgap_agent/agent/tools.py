@@ -16,6 +16,7 @@ from airgap_agent.security import (
     read_file_bounded,
     resolve_workspace_path,
     run_python_sandboxed,
+    write_file_bounded,
 )
 
 @dataclass
@@ -23,6 +24,7 @@ class RunBudgets:
     tool_calls: int = 0
     read_bytes: int = 0
     python_execs: int = 0
+    denials: int = 0
 
 
 @dataclass
@@ -51,6 +53,7 @@ class ToolRegistry:
             "list_directory": self._list_directory,
             "search_text": self._search_text,
             "run_python": self._run_python,
+            "write_file": self._write_file,
         }
 
     def invoke(self, name: str, arguments: dict[str, Any]) -> ToolResult:
@@ -61,21 +64,25 @@ class ToolRegistry:
                 tool=name,
                 reason="budget: max_total_tool_calls_per_run",
             )
+            self._budgets.denials += 1
             return ToolResult(ok=False, output="", error="budget exceeded: tool calls")
 
         if name not in self._config.security.allowed_tools:
             self._audit.emit("tool.denied", tool=name, reason="not in allowlist")
+            self._budgets.denials += 1
             return ToolResult(ok=False, output="", error=f"tool not allowed: {name}")
 
         capability = self._capability_for_tool(name)
         if str(capability) not in self._config.security.allowed_capabilities:
             self._audit.emit("tool.denied", tool=name, reason="capability not allowed", capability=str(capability))
+            self._budgets.denials += 1
             return ToolResult(ok=False, output="", error="capability not allowed")
 
         try:
             arguments = validate_tool_arguments(name, arguments)
         except ValueError as exc:
             self._audit.emit("tool.denied", tool=name, reason=str(exc))
+            self._budgets.denials += 1
             return ToolResult(ok=False, output="", error=str(exc))
 
         decision = self._policy.evaluate(
@@ -89,6 +96,7 @@ class ToolRegistry:
                 rule_id=decision.rule_id,
                 reason=decision.reason,
             )
+            self._budgets.denials += 1
             return ToolResult(ok=False, output="", error=decision.reason)
 
         handler = self._handlers.get(name)
@@ -188,6 +196,24 @@ class ToolRegistry:
                 break
         return ToolResult(ok=True, output=json.dumps(hits, indent=2))
 
+    def _write_file(self, args: dict[str, Any]) -> ToolResult:
+        path = args["path"]
+        content = args["content"]
+        target = resolve_workspace_path(self._workspace, path)
+        if target.suffix and target.suffix not in set(self._config.security.write_allowed_extensions):
+            return ToolResult(ok=False, output="", error=f"extension not allowed: {target.suffix}")
+        decision = self._policy.evaluate(
+            "fs.write",
+            {"path": str(target), "workspace_root": str(self._workspace)},
+        )
+        if decision.effect != "allow":
+            return ToolResult(ok=False, output="", error=decision.reason)
+        if target.exists() and target.is_dir():
+            return ToolResult(ok=False, output="", error="path is a directory")
+        write_file_bounded(target, content, self._config.security.max_write_bytes)
+        rel = target.relative_to(self._workspace.resolve())
+        return ToolResult(ok=True, output=json.dumps({"written": str(rel), "bytes": len(content.encode("utf-8"))}))
+
     def _run_python(self, args: dict[str, Any]) -> ToolResult:
         self._budgets.python_execs += 1
         if self._budgets.python_execs > self._config.security.max_total_python_execs_per_run:
@@ -206,6 +232,7 @@ class ToolRegistry:
                     "list_directory": {"path": "string"},
                     "search_text": {"path": "string", "query": "string"},
                     "run_python": {"source": "string"},
+                    "write_file": {"path": "string", "content": "string"},
                 },
             },
             indent=2,
@@ -222,5 +249,7 @@ class ToolRegistry:
                 return Capability.FS_SEARCH
             case "run_python":
                 return Capability.PY_EXEC
+            case "write_file":
+                return Capability.FS_WRITE
             case _:
                 raise ValueError(f"unknown tool: {tool_name}")

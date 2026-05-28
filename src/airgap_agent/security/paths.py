@@ -37,3 +37,15 @@ def read_file_bounded(path: Path, max_bytes: int) -> str:
     if size > max_bytes:
         raise SandboxError(f"file exceeds max size ({size} > {max_bytes} bytes)")
     return path.read_bytes()[:max_bytes].decode("utf-8", errors="replace")
+
+
+def write_file_bounded(path: Path, content: str, max_bytes: int) -> None:
+    encoded = content.encode("utf-8")
+    if len(encoded) > max_bytes:
+        raise SandboxError(f"write exceeds max size ({len(encoded)} > {max_bytes} bytes)")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    if tmp.exists():
+        tmp.unlink()
+    tmp.write_bytes(encoded)
+    tmp.replace(path)

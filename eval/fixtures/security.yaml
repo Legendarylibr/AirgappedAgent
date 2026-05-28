@@ -1,0 +1,22 @@
+cases:
+  - name: reject-prefixed-toolcall
+    kind: parse_tool_call
+    input: |
+      Sure, here you go:
+      TOOL_CALL
+      {"tool":"list_directory","arguments":{"path":"."}}
+    expect_parsed: false
+
+  - name: accept-valid-toolcall
+    kind: parse_tool_call
+    input: |
+      TOOL_CALL
+      {"tool":"list_directory","arguments":{"path":"."}}
+    expect_parsed: true
+
+  - name: reject-unknown-tool
+    kind: parse_tool_call
+    input: |
+      TOOL_CALL
+      {"tool":"curl","arguments":{"url":"http://evil"}}
+    expect_parsed: false
