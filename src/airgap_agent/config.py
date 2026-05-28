@@ -103,6 +103,7 @@ class ApiSettings(BaseSettings):
     capability_token_header: str = "X-Airgap-Capability-Token"
     enforce_capability_token_scope: bool = True
     replay_protection: bool = False
+    replay_cache_path: Path | None = Path("/var/lib/airgap-agent/replay_nonces.json")
     replay_cache_max_entries: int = 5000
     sessions: SessionSettings = Field(default_factory=SessionSettings)
     metrics: MetricsSettings = Field(default_factory=MetricsSettings)
@@ -135,6 +136,7 @@ class AgentSettings(BaseSettings):
     max_task_chars: int = 32_000
     max_invalid_tool_calls: int = 3
     system_prompt_path: Path | None = None
+    system_prompt_sha256: str | None = None
     response_format: Literal["text", "json"] = "text"
 
 

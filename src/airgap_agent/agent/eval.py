@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from airgap_agent.agent.tool_gate import parse_tool_call
+from airgap_agent.agent.tool_gate import parse_tool_call, sanitize_untrusted_content
 from airgap_agent.config import AppConfig
 from airgap_agent.inference.base import ChatMessage, InferenceBackend
 
@@ -82,6 +82,15 @@ def run_eval_cases(
                         details = f"contains {needle!r}" if ok else f"missing {needle!r}"
                     else:
                         ok, details = False, f"unknown check: {check}"
+            elif kind == "sanitize_content":
+                text = str(case.get("input", ""))
+                out = sanitize_untrusted_content(text)
+                ok = True
+                for key in ("expect_contains", "expect_contains2"):
+                    needle = case.get(key)
+                    if needle and needle not in out:
+                        ok = False
+                details = "sanitized" if ok else f"output missing expected markers: {out[:120]}"
             elif kind == "json_schema":
                 payload = case.get("input", {})
                 schema = case.get("schema", {})

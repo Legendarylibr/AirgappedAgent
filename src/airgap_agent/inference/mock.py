@@ -11,7 +11,7 @@ class MockBackend(InferenceBackend):
 
     def complete(self, messages: list[ChatMessage], **kwargs: Any) -> CompletionResult:
         last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
-        if "<untrusted_tool_result>" in last_user:
+        if "untrusted_tool_result" in last_user and "FORMAT: json" in last_user:
             return CompletionResult(
                 content="Task completed using workspace data from the airgapped sandbox.",
                 finish_reason="stop",

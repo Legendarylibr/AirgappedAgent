@@ -31,8 +31,10 @@
 ## Key mitigations in this repo
 
 - Tool gate: `src/airgap_agent/agent/tool_gate.py`
+- Per-run delimiters + user/history sanitization: `src/airgap_agent/agent/harness.py`, `src/airgap_agent/agent/session.py`
 - Tool allowlist + bounded IO: `src/airgap_agent/agent/tools.py`
 - Signed policy verification: `src/airgap_agent/security/policy.py`
 - Signed bundles: `src/airgap_agent/deployment/bundle.py`
 - Audit hash chain (+ optional encryption): `src/airgap_agent/security/audit.py`
+- API replay nonce cache: `src/airgap_agent/security/replay_cache.py`
 

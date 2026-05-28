@@ -25,6 +25,7 @@ agent:
   max_task_chars: 32000
   max_invalid_tool_calls: 3
   system_prompt_path: null # uses built-in secure default
+  system_prompt_sha256: null # optional sha256:... pin for custom system_prompt_path
   response_format: text # text | json
 
 api:
@@ -35,6 +36,7 @@ api:
   capability_token_header: X-Airgap-Capability-Token
   enforce_capability_token_scope: true
   replay_protection: true
+  replay_cache_path: /var/lib/airgap-agent/replay_nonces.json
   replay_cache_max_entries: 5000
   sessions:
     enabled: true
@@ -93,7 +95,7 @@ security:
       - smtplib
       - requests
       - httpx
-    mode: process # process | docker
+    mode: docker # process | docker (strict prod requires docker; dev --dev uses process)
     docker_image: python:3.12-slim
 
 audit:

@@ -6,6 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from threading import Lock
 
+from airgap_agent.agent.tool_gate import normalize_user_task, sanitize_untrusted_content
 from airgap_agent.inference.base import ChatMessage
 
 
@@ -42,13 +43,24 @@ class SessionStore:
             self._sessions.move_to_end(session_id)
             return list(rec.messages)
 
+    @staticmethod
+    def _sanitize_for_storage(messages: list[ChatMessage]) -> list[ChatMessage]:
+        stored: list[ChatMessage] = []
+        for msg in messages:
+            if msg.role == "user":
+                body = normalize_user_task(msg.content, max_chars=32_000)
+            else:
+                body = sanitize_untrusted_content(msg.content)
+            stored.append(ChatMessage(role=msg.role, content=body))
+        return stored
+
     def append(self, session_id: str, messages: list[ChatMessage]) -> bool:
         with self._lock:
             self._purge_expired()
             rec = self._sessions.get(session_id)
             if rec is None:
                 return False
-            rec.messages.extend(messages)
+            rec.messages.extend(self._sanitize_for_storage(messages))
             if len(rec.messages) > self._max_messages:
                 rec.messages = rec.messages[-self._max_messages :]
             rec.updated_at = time.time()

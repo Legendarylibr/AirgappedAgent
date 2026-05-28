@@ -63,6 +63,8 @@ def _load(path: Optional[Path], dev: bool) -> AppConfig:
         config.security.workspace_root = Path("./workspace")
         config.bundle.models_dir = Path("./models")
         config.api.require_token = False
+        config.api.replay_cache_path = Path("./.airgap/replay_nonces.json")
+        config.security.python_sandbox.mode = "process"
     return config
 
 
@@ -351,6 +353,11 @@ def mint_token_cmd(
     max_tool_calls: int = typer.Option(25, "--max-tool-calls"),
     max_read_bytes: int = typer.Option(1_048_576, "--max-read-bytes"),
     max_python_execs: int = typer.Option(5, "--max-python-execs"),
+    api_path: str = typer.Option(
+        "/v1/agent/run",
+        "--path",
+        help="HTTP path this token is valid for (/v1/agent/run or /v1/sessions).",
+    ),
 ) -> None:
     """
     Mint an HMAC-signed capability token for the loopback HTTP API.
@@ -378,7 +385,7 @@ def mint_token_cmd(
         },
         nonce=uuid.uuid4().hex,
         method="POST",
-        path="/v1/agent/run",
+        path=api_path,
     )
     console.print(token)
 
@@ -457,7 +464,12 @@ def serve(
 
     backend = create_backend(cfg)
     audit = AuditLogger(cfg.audit)
-    used_nonces: dict[str, int] = {}
+    from airgap_agent.security.replay_cache import ReplayNonceCache
+
+    replay_cache = ReplayNonceCache(
+        cfg.api.replay_cache_path if cfg.api.replay_protection else None,
+        max_entries=cfg.api.replay_cache_max_entries,
+    )
     metrics = MetricsRegistry()
     sessions = SessionStore(
         max_sessions=cfg.api.sessions.max_sessions,
@@ -502,55 +514,48 @@ def serve(
             else:
                 self._json(404, {"error": "not found"})
 
+        def _verify_capability_for_path(self, expected_path: str) -> dict | None:
+            try:
+                claims = verify_capability_token_from_headers(cfg, self._headers_map())
+            except BootstrapError:
+                return None
+            if cfg.api.enforce_capability_token_scope:
+                if claims.get("method") and str(claims["method"]).upper() != "POST":
+                    return None
+                if claims.get("path") and str(claims["path"]) != expected_path:
+                    return None
+            return claims
+
         def do_POST(self) -> None:
             metrics.inc_api_request()
             if not verify_api_token(cfg, self._headers_map()):
                 self._unauthorized()
                 return
+
             if self.path == "/v1/sessions" and cfg.api.sessions.enabled:
+                if cfg.api.require_capability_token:
+                    if self._verify_capability_for_path("/v1/sessions") is None:
+                        self._unauthorized()
+                        return
                 sid = sessions.create()
                 self._json(201, {"session_id": sid})
                 return
+
             if self.path != "/v1/agent/run":
                 self._json(404, {"error": "not found"})
                 return
 
-            # Capability token is required by default; it scopes capabilities/budgets per request.
-            try:
-                claims = verify_capability_token_from_headers(cfg, self._headers_map())
-            except BootstrapError:
+            claims = self._verify_capability_for_path("/v1/agent/run")
+            if claims is None:
                 self._unauthorized()
                 return
-
-            if cfg.api.enforce_capability_token_scope:
-                if claims.get("method") and str(claims["method"]).upper() != "POST":
-                    self._unauthorized()
-                    return
-                if claims.get("path") and str(claims["path"]) != "/v1/agent/run":
-                    self._unauthorized()
-                    return
 
             if cfg.api.replay_protection:
                 nonce = claims.get("nonce")
                 exp = int(claims.get("exp", 0))
-                if not nonce:
+                if not replay_cache.accept(str(nonce), exp):
                     self._unauthorized()
                     return
-                # prune expired + cap memory
-                import time
-
-                now = int(time.time())
-                for k, v in list(used_nonces.items()):
-                    if v <= now:
-                        used_nonces.pop(k, None)
-                if len(used_nonces) > cfg.api.replay_cache_max_entries:
-                    # best-effort trimming: drop arbitrary entries
-                    for k in list(used_nonces.keys())[: len(used_nonces) - cfg.api.replay_cache_max_entries]:
-                        used_nonces.pop(k, None)
-                if nonce in used_nonces:
-                    self._unauthorized()
-                    return
-                used_nonces[str(nonce)] = exp
 
             length = int(self.headers.get("Content-Length", 0))
             if length > cfg.agent.max_task_chars + 4096:
@@ -604,7 +609,7 @@ def serve(
                 sessions.append(
                     str(session_id),
                     [
-                        ChatMessage(role="user", content=task),
+                        ChatMessage(role="user", content=str(task)),
                         ChatMessage(role="assistant", content=result.answer),
                     ],
                 )
