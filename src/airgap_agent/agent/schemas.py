@@ -9,6 +9,7 @@ _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MAX_PATH_LEN = 4096
 _MAX_SOURCE_LEN = 64_000
 _MAX_QUERY_LEN = 512
+_MAX_WRITE_LEN = 262_144
 
 
 class ReadFileArgs(BaseModel):
@@ -35,6 +36,18 @@ class RunPythonArgs(BaseModel):
     source: str = Field(min_length=1, max_length=_MAX_SOURCE_LEN)
 
 
+class WriteFileArgs(BaseModel):
+    path: str = Field(min_length=1, max_length=_MAX_PATH_LEN)
+    content: str = Field(max_length=_MAX_WRITE_LEN)
+
+    @field_validator("path")
+    @classmethod
+    def path_chars(cls, v: str) -> str:
+        if "\x00" in v:
+            raise ValueError("invalid path")
+        return v
+
+
 def validate_tool_arguments(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if not _TOOL_NAME_RE.match(tool):
         raise ValueError(f"invalid tool name: {tool}")
@@ -43,6 +56,7 @@ def validate_tool_arguments(tool: str, arguments: dict[str, Any]) -> dict[str, A
         "list_directory": ListDirectoryArgs,
         "search_text": SearchTextArgs,
         "run_python": RunPythonArgs,
+        "write_file": WriteFileArgs,
     }
     model = models.get(tool)
     if model is None:

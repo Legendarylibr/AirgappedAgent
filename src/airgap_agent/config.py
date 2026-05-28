@@ -22,6 +22,7 @@ class InferenceSettings(BaseSettings):
     n_gpu_layers: int = 0
     temperature: float = 0.2
     max_tokens: int = 2048
+    chat_template: Literal["generic", "chatml", "llama3", "mistral"] = "generic"
     base_url: str = "http://127.0.0.1:8080/v1"
     api_key_env: str = "AIRGAP_INFERENCE_API_KEY"
 
@@ -63,6 +64,10 @@ class SecuritySettings(BaseSettings):
     )
     tool_timeout_seconds: int = 30
     workspace_root: Path = Path("/var/lib/airgap-agent/workspace")
+    max_write_bytes: int = 262_144
+    write_allowed_extensions: list[str] = Field(
+        default_factory=lambda: [".txt", ".md", ".json", ".yaml", ".yml", ".py", ".log", ".toml"]
+    )
     max_read_bytes: int = 1_048_576
     max_list_entries: int = 500
     max_search_hits: int = 50
@@ -79,6 +84,17 @@ class SecuritySettings(BaseSettings):
     python_sandbox: PythonSandboxSettings = Field(default_factory=PythonSandboxSettings)
 
 
+class SessionSettings(BaseSettings):
+    enabled: bool = True
+    max_sessions: int = 100
+    max_messages_per_session: int = 50
+    ttl_seconds: int = 3600
+
+
+class MetricsSettings(BaseSettings):
+    enabled: bool = True
+
+
 class ApiSettings(BaseSettings):
     require_token: bool = True
     token_env: str = "AIRGAP_API_TOKEN"
@@ -88,6 +104,8 @@ class ApiSettings(BaseSettings):
     enforce_capability_token_scope: bool = True
     replay_protection: bool = False
     replay_cache_max_entries: int = 5000
+    sessions: SessionSettings = Field(default_factory=SessionSettings)
+    metrics: MetricsSettings = Field(default_factory=MetricsSettings)
 
 
 class TrustSettings(BaseSettings):
@@ -117,6 +135,7 @@ class AgentSettings(BaseSettings):
     max_task_chars: int = 32_000
     max_invalid_tool_calls: int = 3
     system_prompt_path: Path | None = None
+    response_format: Literal["text", "json"] = "text"
 
 
 class AppConfig(BaseSettings):
@@ -140,6 +159,8 @@ class AppConfig(BaseSettings):
     def strict_mode_checks(self) -> AppConfig:
         if self.airgap.mode == "strict" and not self.airgap.deny_egress:
             raise ValueError("deny_egress must be true when airgap.mode is strict")
+        if self.airgap.mode == "strict" and not self.api.replay_protection:
+            self.api.replay_protection = True
         return self
 
 
