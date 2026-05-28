@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -7,7 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from airgap_agent.agent.prompts import DEFAULT_SYSTEM_PROMPT
-from airgap_agent.agent.tool_gate import format_tool_observation, parse_tool_call
+from airgap_agent.agent.tool_gate import (
+    format_tool_observation,
+    make_run_delimiters,
+    normalize_user_task,
+    parse_tool_call,
+    sanitize_history_messages,
+    sanitize_untrusted_content,
+    wrap_user_task,
+)
 from airgap_agent.agent.tools import RunBudgets, ToolRegistry
 from airgap_agent.config import AppConfig
 from airgap_agent.inference.base import ChatMessage, InferenceBackend
@@ -45,8 +54,17 @@ class AgentHarness:
     def _load_system_prompt(self) -> str:
         path = self._config.agent.system_prompt_path
         if path and Path(path).exists():
-            return Path(path).read_text(encoding="utf-8")
-        return DEFAULT_SYSTEM_PROMPT
+            content = Path(path).read_text(encoding="utf-8")
+        else:
+            content = DEFAULT_SYSTEM_PROMPT
+
+        expected = self._config.agent.system_prompt_sha256
+        if expected:
+            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            norm = expected.lower().removeprefix("sha256:").strip()
+            if digest != norm:
+                raise ValueError("system prompt SHA-256 mismatch with agent.system_prompt_sha256")
+        return content
 
     def run(
         self,
@@ -55,10 +73,15 @@ class AgentHarness:
         history: list[ChatMessage] | None = None,
         run_id: str | None = None,
     ) -> AgentRunResult:
+        task = normalize_user_task(
+            user_task,
+            max_chars=self._config.agent.max_task_chars,
+        )
         if len(user_task) > self._config.agent.max_task_chars:
             raise ValueError(f"task exceeds max length ({self._config.agent.max_task_chars})")
 
         rid = run_id or uuid.uuid4().hex
+        delimiters = make_run_delimiters(rid)
         allowlist_block = (
             "Allowed tools (JSON schema):\n" + self._tools.schema_description()
         )
@@ -73,14 +96,19 @@ class AgentHarness:
             ChatMessage(role="system", content=self._system + output_hint),
         ]
         if history:
-            messages.extend(history)
+            messages.extend(
+                sanitize_history_messages(
+                    history,
+                    max_chars=self._config.agent.max_tool_output_chars,
+                )
+            )
         messages.append(
             ChatMessage(
                 role="user",
-                content=f"{allowlist_block}\n\n<user_task>\n{user_task}\n</user_task>",
+                content=wrap_user_task(task, delimiters, allowlist_block=allowlist_block),
             ),
         )
-        self._audit.emit("agent.start", task_len=len(user_task), run_id=rid)
+        self._audit.emit("agent.start", task_len=len(task), run_id=rid)
 
         tool_calls = 0
         invalid_tool_calls = 0
@@ -114,7 +142,12 @@ class AgentHarness:
                             tool_calls=tool_calls,
                             run_id=rid,
                         )
-                    messages.append(ChatMessage(role="assistant", content=text))
+                    messages.append(
+                        ChatMessage(
+                            role="assistant",
+                            content=sanitize_untrusted_content(text),
+                        )
+                    )
                     messages.append(
                         ChatMessage(
                             role="user",
@@ -133,7 +166,12 @@ class AgentHarness:
                     structured, parse_ok = _try_parse_json_answer(answer)
                     if not parse_ok and json_retries < 1:
                         json_retries += 1
-                        messages.append(ChatMessage(role="assistant", content=text))
+                        messages.append(
+                            ChatMessage(
+                                role="assistant",
+                                content=sanitize_untrusted_content(text),
+                            )
+                        )
                         messages.append(
                             ChatMessage(
                                 role="user",
@@ -157,9 +195,15 @@ class AgentHarness:
             tool_calls += 1
             result = self._tools.invoke(tool_name, arguments)
             observation = format_tool_observation(
-                tool_name, result.ok, result.output, result.error
+                tool_name,
+                result.ok,
+                result.output,
+                result.error,
+                delimiters=delimiters,
             )
-            messages.append(ChatMessage(role="assistant", content=text))
+            messages.append(
+                ChatMessage(role="assistant", content=sanitize_untrusted_content(text))
+            )
             messages.append(ChatMessage(role="user", content=observation))
 
         self._audit.emit("agent.max_iterations", tool_calls=tool_calls, run_id=rid)

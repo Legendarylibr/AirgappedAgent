@@ -16,7 +16,11 @@ No cloud APIs, no telemetry, no outbound network at runtime.
 ## Hardening (red-team remediations)
 
 - **Tool gate**: `TOOL_CALL` must be the first token; JSON parsed with `raw_decode`; schema-validated arguments; allowlist enforced server-side.
-- **Injection containment**: Tool/file output wrapped in `<untrusted_tool_result>` and sanitized before model context.
+- **Injection containment**: Per-run delimiter tags; tool/file output sanitized (NFKC, zero-width, bidi controls, injection patterns); user tasks and session history re-sanitized each turn.
+- **Session safety**: Stored chat turns sanitized; API session creation requires capability token when enabled.
+- **Replay protection**: Nonce cache persisted to `api.replay_cache_path` (strict default).
+- **Strict Python**: Production strict mode requires `security.python_sandbox.mode: docker` for `run_python` (override with `AIRGAP_ALLOW_PROCESS_PYTHON=1`).
+- **System prompt pin**: Optional `agent.system_prompt_sha256` to detect tampering of custom prompts.
 - **Python sandbox**: AST allowlist (no attributes), subprocess isolation (`python -I -S`), timeout.
 - **Python sandbox (optional)**: Docker-isolated execution (`--network none`, read-only FS, dropped caps) when `security.python_sandbox.mode: docker` and the image is preloaded.
 - **Filesystem**: Symlink rejection, path traversal blocked, bounded reads/list/search.
@@ -227,6 +231,7 @@ export AIRGAP_API_HMAC_KEY=$(openssl rand -hex 32)
 airgap-agent serve --host 127.0.0.1 --port 8741
 
 CAP_TOKEN=$(airgap-agent mint-token --cap fs.read --cap fs.list --ttl 300 --max-read-bytes 1048576)
+SESSION_TOKEN=$(airgap-agent mint-token --path /v1/sessions --cap fs.read --ttl 300)
 
 curl -s -X POST http://127.0.0.1:8741/v1/agent/run \
   -H "Authorization: Bearer $AIRGAP_API_TOKEN" \

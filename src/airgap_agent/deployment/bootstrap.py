@@ -37,6 +37,18 @@ def ensure_runtime_ready(config: AppConfig, *, dev: bool = False) -> PolicyEngin
         if not bundle.ok:
             raise BootstrapError("bundle verification failed: " + "; ".join(bundle.errors))
 
+    if (
+        not dev
+        and config.airgap.mode == "strict"
+        and "run_python" in config.security.allowed_tools
+        and config.security.python_sandbox.mode != "docker"
+        and os.environ.get("AIRGAP_ALLOW_PROCESS_PYTHON") != "1"
+    ):
+        raise BootstrapError(
+            "strict mode requires security.python_sandbox.mode=docker for run_python; "
+            "set AIRGAP_ALLOW_PROCESS_PYTHON=1 to override"
+        )
+
     return PolicyEngine(policy_path, config.trust)
 
 
