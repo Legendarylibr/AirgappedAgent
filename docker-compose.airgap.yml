@@ -1,0 +1,23 @@
+# Airgapped runtime profile: no outbound network, loopback-only service.
+services:
+  agent:
+    image: airgap-agent:0.1.0
+    build: .
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ./models:/var/lib/airgap-agent/models:ro
+      - ./workspace:/var/lib/airgap-agent/workspace:rw
+      - ./audit:/var/log/airgap-agent:rw
+    environment:
+      AIRGAP_INFERENCE__BACKEND: mock
+      AIRGAP_AIRGAP__REQUIRE_BUNDLE_MANIFEST: "true"
+    # Override command when using llama.cpp weights:
+    # command: ["run", "Your offline task"]
+    ports: [] # network_mode: none — use docker exec on isolated host

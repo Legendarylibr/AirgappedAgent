@@ -1,0 +1,96 @@
+# Secure-by-default configuration for airgapped agentic inference.
+# Override via AIRGAP_* environment variables or --config path.
+
+airgap:
+  mode: strict # strict | permissive (permissive only for local dev)
+  deny_egress: true
+  bind_host: "127.0.0.1"
+  require_bundle_manifest: true
+
+inference:
+  backend: mock # mock | llama_cpp | openai_compat
+  model_path: /var/lib/airgap-agent/models/model.gguf
+  n_ctx: 8192
+  n_gpu_layers: 0
+  temperature: 0.2
+  max_tokens: 2048
+  # openai_compat only — must be loopback
+  base_url: "http://127.0.0.1:8080/v1"
+  api_key_env: AIRGAP_INFERENCE_API_KEY
+
+agent:
+  max_iterations: 12
+  max_tool_output_chars: 16000
+  max_task_chars: 32000
+  max_invalid_tool_calls: 3
+  system_prompt_path: null # uses built-in secure default
+
+api:
+  require_token: true
+  token_env: AIRGAP_API_TOKEN
+  require_capability_token: true
+  capability_token_env: AIRGAP_API_HMAC_KEY
+  capability_token_header: X-Airgap-Capability-Token
+  enforce_capability_token_scope: true
+  replay_protection: false
+  replay_cache_max_entries: 5000
+
+security:
+  max_read_bytes: 1048576
+  max_list_entries: 500
+  max_search_hits: 50
+  max_search_files: 2000
+  max_total_tool_calls_per_run: 50
+  max_total_read_bytes_per_run: 4194304
+  max_total_python_execs_per_run: 10
+  allowed_capabilities:
+    - fs.read
+    - fs.list
+    - fs.search
+    - py.exec
+  search_allowed_extensions:
+    - .py
+    - .md
+    - .txt
+    - .json
+    - .yaml
+    - .yml
+    - .log
+    - .toml
+  allowed_tools:
+    - read_file
+    - list_directory
+    - search_text
+    - run_python
+  tool_timeout_seconds: 30
+  workspace_root: /var/lib/airgap-agent/workspace
+  python_sandbox:
+    deny_imports:
+      - socket
+      - subprocess
+      - urllib
+      - http
+      - ftplib
+      - smtplib
+      - requests
+      - httpx
+    mode: process # process | docker
+    docker_image: python:3.12-slim
+
+audit:
+  enabled: true
+  log_path: /var/log/airgap-agent/audit.jsonl
+  include_prompts: false
+  hash_chain: true # tamper-evident chain; verify with: airgap-agent verify-audit
+  encrypt_at_rest: false # ChaCha20-Poly1305; set AIRGAP_AUDIT_ENCRYPTION_KEY
+  encryption_key_env: AIRGAP_AUDIT_ENCRYPTION_KEY
+
+trust:
+  public_keys_dir: /etc/airgap-agent/trust
+  require_signed_manifest: true
+  require_signed_policy: true
+
+bundle:
+  models_dir: /var/lib/airgap-agent/models
+  manifest_name: MANIFEST.sha256
+  signature_name: MANIFEST.sig.json

@@ -1,0 +1,43 @@
+# Declarative policy for tool and network actions (evaluated before execution).
+version: "1"
+
+defaults:
+  effect: deny
+
+rules:
+  - id: allow-listed-capabilities
+    effect: allow
+    actions:
+      - tool.invoke
+    when:
+      capability.in:
+        - fs.read
+        - fs.list
+        - fs.search
+        - py.exec
+
+  - id: deny-egress
+    effect: deny
+    actions:
+      - network.egress
+    when:
+      always: true
+
+  - id: deny-shell
+    effect: deny
+    actions:
+      - tool.invoke
+    when:
+      tool.name_in:
+        - shell
+        - bash
+        - exec
+        - curl
+        - wget
+
+  - id: workspace-read-only-paths
+    effect: allow
+    actions:
+      - fs.read
+    when:
+      path.under_workspace: true
