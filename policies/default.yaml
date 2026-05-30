@@ -43,6 +43,20 @@ rules:
     when:
       path.under_workspace: true
 
+  - id: workspace-list-paths
+    effect: allow
+    actions:
+      - fs.list
+    when:
+      path.under_workspace: true
+
+  - id: workspace-search-paths
+    effect: allow
+    actions:
+      - fs.search
+    when:
+      path.under_workspace: true
+
   - id: workspace-writes
     effect: allow
     actions:

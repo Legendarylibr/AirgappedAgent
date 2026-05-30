@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 from airgap_agent.config import AppConfig
+from airgap_agent.deployment.bootstrap import resolve_policy_path
 from airgap_agent.deployment.bundle import verify_bundle
 from airgap_agent.inference.base import InferenceBackend
 
@@ -15,7 +16,8 @@ def health_report(config: AppConfig, backend: InferenceBackend) -> dict[str, Any
     audit_path = config.audit.log_path
     audit_parent = audit_path.parent
     audit_writable = audit_parent.exists() and audit_parent.is_dir() and os.access(audit_parent, os.W_OK)
-    policy_exists = config.policy_path.exists()
+    policy_path = resolve_policy_path(config)
+    policy_exists = policy_path.exists()
 
     return {
         "status": "ok" if workspace_ok and (not config.audit.enabled or audit_writable) else "degraded",
@@ -33,7 +35,7 @@ def health_report(config: AppConfig, backend: InferenceBackend) -> dict[str, Any
             "log_path": str(audit_path),
             "writable": audit_writable,
         },
-        "policy": {"path": str(config.policy_path), "exists": policy_exists},
+        "policy": {"path": str(policy_path), "exists": policy_exists},
         "bundle": None
         if bundle is None
         else {

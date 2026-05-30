@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import os
 from pathlib import Path
 
@@ -28,9 +29,7 @@ def ensure_dev_allowed(dev: bool) -> None:
 
 def ensure_runtime_ready(config: AppConfig, *, dev: bool = False) -> PolicyEngine:
     ensure_dev_allowed(dev)
-    policy_path = config.policy_path
-    if not policy_path.is_absolute():
-        policy_path = Path.cwd() / policy_path
+    policy_path = resolve_policy_path(config)
 
     if config.airgap.require_bundle_manifest and not dev:
         bundle = verify_bundle(config.bundle, config.trust)
@@ -52,16 +51,40 @@ def ensure_runtime_ready(config: AppConfig, *, dev: bool = False) -> PolicyEngin
     return PolicyEngine(policy_path, config.trust)
 
 
+def resolve_policy_path(config: AppConfig) -> Path:
+    policy_path = config.policy_path
+    if not policy_path.is_absolute():
+        policy_path = Path.cwd() / policy_path
+    return policy_path
+
+
+def validate_api_config(config: AppConfig) -> None:
+    """Fail fast at serve startup when required API secrets are missing."""
+    if config.api.require_token:
+        if not os.environ.get(config.api.token_env, ""):
+            raise BootstrapError(
+                f"{config.api.token_env} must be set when api.require_token is true"
+            )
+    if config.api.require_capability_token:
+        if not os.environ.get(config.api.capability_token_env, ""):
+            raise BootstrapError(
+                f"{config.api.capability_token_env} must be set when "
+                "api.require_capability_token is true"
+            )
+
+
 def verify_api_token(config: AppConfig, headers: dict[str, str]) -> bool:
     if not config.api.require_token:
         return True
     expected = os.environ.get(config.api.token_env, "")
     if not expected:
-        raise BootstrapError(f"{config.api.token_env} must be set when api.require_token is true")
+        return False
     auth = headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:] == expected
-    return headers.get("X-Airgap-Token", "") == expected
+    token = auth[7:] if auth.startswith("Bearer ") else headers.get("X-Airgap-Token", "")
+    if not token:
+        hmac.compare_digest("", "")
+        return False
+    return hmac.compare_digest(token, expected)
 
 
 def verify_capability_token_from_headers(config: AppConfig, headers: dict[str, str]) -> dict:
