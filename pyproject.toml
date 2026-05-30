@@ -8,14 +8,14 @@ version = "0.1.0"
 description = "Airgapped, secure-by-default deployment and inference harness for agentic AI with open-source models"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Airgap Agent Contributors" }]
 keywords = ["ai", "agents", "airgap", "security", "llm", "offline"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Security",

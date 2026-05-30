@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from airgap_agent.config import InferenceSettings
@@ -28,18 +29,20 @@ class LlamaCppBackend(InferenceBackend):
             n_gpu_layers=settings.n_gpu_layers,
             verbose=False,
         )
+        self._lock = Lock()
 
     def complete(self, messages: list[ChatMessage], **kwargs: Any) -> CompletionResult:
         temperature = kwargs.get("temperature", self._settings.temperature)
         max_tokens = kwargs.get("max_tokens", self._settings.max_tokens)
         prompt = format_chat_prompt(messages, self._settings.chat_template)
         stops = ["</s>", "USER:", "ASSISTANT:", "<|eot_id|>"]
-        out = self._llm(
-            prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stop=stops,
-        )
+        with self._lock:
+            out = self._llm(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stops,
+            )
         text = out["choices"][0]["text"].strip()
         return CompletionResult(content=text, finish_reason="stop")
 

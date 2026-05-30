@@ -17,7 +17,6 @@ services:
       - ./audit:/var/log/airgap-agent:rw
     environment:
       AIRGAP_INFERENCE__BACKEND: mock
-      AIRGAP_AIRGAP__REQUIRE_BUNDLE_MANIFEST: "true"
-    # Override command when using llama.cpp weights:
-    # command: ["run", "Your offline task"]
+      AIRGAP_AIRGAP__REQUIRE_BUNDLE_MANIFEST: "false"
+    command: ["serve", "--dev", "--host", "127.0.0.1", "--port", "8741"]
     ports: [] # network_mode: none — use docker exec on isolated host

@@ -18,6 +18,15 @@ def test_allow_listed_capability() -> None:
     assert d.effect == "allow"
 
 
+def test_fs_list_under_workspace() -> None:
+    engine = PolicyEngine(Path("policies/default.yaml"), _TRUST)
+    d = engine.evaluate(
+        "fs.list",
+        {"path": "/var/lib/airgap-agent/workspace", "workspace_root": "/var/lib/airgap-agent/workspace"},
+    )
+    assert d.effect == "allow"
+
+
 def test_deny_shell_tool() -> None:
     engine = PolicyEngine(Path("policies/default.yaml"), _TRUST)
     d = engine.evaluate("tool.invoke", {"tool_name": "curl"})

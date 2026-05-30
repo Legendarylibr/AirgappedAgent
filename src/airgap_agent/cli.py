@@ -19,6 +19,7 @@ from airgap_agent.deployment import (
     ensure_runtime_ready,
     health_report,
     sign_manifest,
+    validate_api_config,
     verify_capability_token_from_headers,
     verify_api_token,
     verify_bundle,
@@ -63,6 +64,8 @@ def _load(path: Optional[Path], dev: bool) -> AppConfig:
         config.security.workspace_root = Path("./workspace")
         config.bundle.models_dir = Path("./models")
         config.api.require_token = False
+        config.api.require_capability_token = False
+        config.api.replay_protection = False
         config.api.replay_cache_path = Path("./.airgap/replay_nonces.json")
         config.security.python_sandbox.mode = "process"
     return config
@@ -73,6 +76,7 @@ def run(
     task: str = typer.Argument(..., help="Task for the agent to complete offline."),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config path."),
     dev: bool = typer.Option(False, "--dev", help="Relaxed paths for local development."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON result."),
 ) -> None:
     """Run the agent harness against a local open-source model."""
     _setup_logging()
@@ -87,10 +91,26 @@ def run(
     audit = AuditLogger(cfg.audit)
     harness = AgentHarness(cfg, backend, policy, audit)
     result = harness.run(task)
-    console.print(Panel(result.answer, title="Agent result", border_style="green"))
-    console.print(
-        f"run_id={result.run_id} iterations={result.iterations} tool_calls={result.tool_calls}"
-    )
+    if json_output:
+        console.print(
+            json.dumps(
+                {
+                    "answer": result.answer,
+                    "run_id": result.run_id,
+                    "iterations": result.iterations,
+                    "tool_calls": result.tool_calls,
+                    "budget_denials": result.budget_denials,
+                    "structured": result.structured,
+                },
+                indent=2,
+            )
+        )
+    else:
+        console.print(Panel(result.answer, title="Agent result", border_style="green"))
+        console.print(
+            f"run_id={result.run_id} iterations={result.iterations} "
+            f"tool_calls={result.tool_calls} budget_denials={result.budget_denials}"
+        )
 
 
 @app.command()
@@ -458,6 +478,7 @@ def serve(
     cfg = _load(config, dev)
     try:
         policy = ensure_runtime_ready(cfg, dev=dev)
+        validate_api_config(cfg)
     except BootstrapError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -495,6 +516,12 @@ def serve(
         def _unauthorized(self) -> None:
             self._json(401, {"error": "unauthorized"})
 
+        def _forbidden(self, reason: str = "forbidden") -> None:
+            self._json(403, {"error": reason})
+
+        def _bad_request(self, reason: str) -> None:
+            self._json(400, {"error": reason})
+
         def do_GET(self) -> None:
             metrics.inc_api_request()
             if not verify_api_token(cfg, self._headers_map()):
@@ -511,8 +538,39 @@ def serve(
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path.startswith("/v1/sessions/") and cfg.api.sessions.enabled:
+                session_id = self.path.removeprefix("/v1/sessions/").strip("/")
+                if not session_id:
+                    self._json(404, {"error": "not found"})
+                    return
+                history = sessions.get_history(session_id)
+                if history is None:
+                    self._json(404, {"error": "unknown session_id"})
+                    return
+                self._json(
+                    200,
+                    {
+                        "session_id": session_id,
+                        "message_count": len(history),
+                        "ttl_seconds": cfg.api.sessions.ttl_seconds,
+                    },
+                )
             else:
                 self._json(404, {"error": "not found"})
+
+        def do_DELETE(self) -> None:
+            metrics.inc_api_request()
+            if not verify_api_token(cfg, self._headers_map()):
+                self._unauthorized()
+                return
+            if not self.path.startswith("/v1/sessions/") or not cfg.api.sessions.enabled:
+                self._json(404, {"error": "not found"})
+                return
+            session_id = self.path.removeprefix("/v1/sessions/").strip("/")
+            if not session_id or not sessions.delete(session_id):
+                self._json(404, {"error": "unknown session_id"})
+                return
+            self._json(200, {"deleted": session_id})
 
         def _verify_capability_for_path(self, expected_path: str) -> dict | None:
             try:
@@ -535,34 +593,54 @@ def serve(
             if self.path == "/v1/sessions" and cfg.api.sessions.enabled:
                 if cfg.api.require_capability_token:
                     if self._verify_capability_for_path("/v1/sessions") is None:
-                        self._unauthorized()
+                        self._forbidden("capability token required or invalid for /v1/sessions")
                         return
                 sid = sessions.create()
-                self._json(201, {"session_id": sid})
+                self._json(
+                    201,
+                    {
+                        "session_id": sid,
+                        "ttl_seconds": cfg.api.sessions.ttl_seconds,
+                    },
+                )
                 return
 
             if self.path != "/v1/agent/run":
                 self._json(404, {"error": "not found"})
                 return
 
-            claims = self._verify_capability_for_path("/v1/agent/run")
-            if claims is None:
-                self._unauthorized()
-                return
+            if cfg.api.require_capability_token:
+                claims = self._verify_capability_for_path("/v1/agent/run")
+                if claims is None:
+                    self._forbidden("capability token required or invalid for /v1/agent/run")
+                    return
+            else:
+                claims = verify_capability_token_from_headers(cfg, self._headers_map())
 
-            if cfg.api.replay_protection:
+            if cfg.api.replay_protection and cfg.api.require_capability_token:
                 nonce = claims.get("nonce")
                 exp = int(claims.get("exp", 0))
-                if not replay_cache.accept(str(nonce), exp):
-                    self._unauthorized()
+                if not nonce or not replay_cache.accept(str(nonce), exp):
+                    self._forbidden("replay detected or missing nonce")
                     return
 
-            length = int(self.headers.get("Content-Length", 0))
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                self._bad_request("invalid Content-Length")
+                return
             if length > cfg.agent.max_task_chars + 4096:
                 self._json(413, {"error": "payload too large"})
                 return
-            raw = self.rfile.read(length).decode()
-            data = jsonlib.loads(raw) if raw else {}
+            try:
+                raw = self.rfile.read(length).decode()
+                data = jsonlib.loads(raw) if raw else {}
+            except (UnicodeDecodeError, jsonlib.JSONDecodeError):
+                self._bad_request("invalid JSON body")
+                return
+            if not isinstance(data, dict):
+                self._bad_request("JSON body must be an object")
+                return
             task = data.get("task", "")
             if not task:
                 self._json(400, {"error": "task required"})
@@ -597,12 +675,12 @@ def serve(
             )
 
             metrics.inc_run()
-            harness = AgentHarness(scoped, backend, policy, audit)
+            harness = AgentHarness(scoped, backend, policy, audit, metrics=metrics)
             try:
                 result = harness.run(task, history=history)
             except ValueError as exc:
                 metrics.inc_run_failed()
-                self._json(400, {"error": str(exc)})
+                self._bad_request(str(exc))
                 return
             metrics.inc_tool_calls(result.tool_calls)
             if session_id and cfg.api.sessions.enabled:
@@ -622,6 +700,7 @@ def serve(
                     "session_id": session_id,
                     "iterations": result.iterations,
                     "tool_calls": result.tool_calls,
+                    "budget_denials": result.budget_denials,
                     "caps": scoped.security.allowed_capabilities,
                 },
             )

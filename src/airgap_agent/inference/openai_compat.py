@@ -32,10 +32,17 @@ class OpenAICompatBackend(InferenceBackend):
         resp = self._client.post("/chat/completions", json=payload)
         resp.raise_for_status()
         data = resp.json()
-        choice = data["choices"][0]
+        choices = data.get("choices")
+        if not choices:
+            raise RuntimeError("openai_compat: empty choices in response")
+        choice = choices[0]
+        message = choice.get("message") or {}
+        content = message.get("content")
+        if content is None:
+            raise RuntimeError("openai_compat: missing message.content in response")
         usage = data.get("usage")
         return CompletionResult(
-            content=choice["message"]["content"],
+            content=content,
             finish_reason=choice.get("finish_reason", "stop"),
             usage=usage,
         )

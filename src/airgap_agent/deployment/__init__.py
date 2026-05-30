@@ -1,6 +1,8 @@
 from airgap_agent.deployment.bootstrap import (
     BootstrapError,
     ensure_runtime_ready,
+    resolve_policy_path,
+    validate_api_config,
     verify_api_token,
     verify_capability_token_from_headers,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "BundleVerification",
     "ensure_runtime_ready",
     "health_report",
+    "resolve_policy_path",
+    "validate_api_config",
     "sign_manifest",
     "verify_capability_token_from_headers",
     "verify_api_token",

@@ -17,6 +17,7 @@ from airgap_agent.agent.tool_gate import (
     sanitize_untrusted_content,
     wrap_user_task,
 )
+from airgap_agent.agent.metrics import MetricsRegistry
 from airgap_agent.agent.tools import RunBudgets, ToolRegistry
 from airgap_agent.config import AppConfig
 from airgap_agent.inference.base import ChatMessage, InferenceBackend
@@ -30,6 +31,7 @@ class AgentRunResult:
     tool_calls: int
     run_id: str = ""
     structured: dict[str, Any] | None = None
+    budget_denials: int = 0
 
 
 class AgentHarness:
@@ -41,13 +43,14 @@ class AgentHarness:
         audit: AuditLogger,
         *,
         budgets: RunBudgets | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._config = config
         self._backend = backend
         self._policy = policy
         self._audit = audit
         self._budgets = budgets or RunBudgets()
-        self._tools = ToolRegistry(config, policy, audit, self._budgets)
+        self._tools = ToolRegistry(config, policy, audit, self._budgets, metrics=metrics)
         self._system = self._load_system_prompt()
         self._allowed_tools = frozenset(config.security.allowed_tools)
 
@@ -141,6 +144,7 @@ class AgentHarness:
                             iterations=i + 1,
                             tool_calls=tool_calls,
                             run_id=rid,
+                            budget_denials=self._budgets.denials,
                         )
                     messages.append(
                         ChatMessage(
@@ -189,6 +193,7 @@ class AgentHarness:
                     tool_calls=tool_calls,
                     run_id=rid,
                     structured=structured,
+                    budget_denials=self._budgets.denials,
                 )
 
             tool_name, arguments = parsed
@@ -212,6 +217,7 @@ class AgentHarness:
             iterations=self._config.agent.max_iterations,
             tool_calls=tool_calls,
             run_id=rid,
+            budget_denials=self._budgets.denials,
         )
 
 

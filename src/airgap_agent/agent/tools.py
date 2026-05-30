@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from airgap_agent.agent.schemas import validate_tool_arguments
 from airgap_agent.agent.tool_gate import sanitize_untrusted_content
+from airgap_agent.agent.metrics import MetricsRegistry
 from airgap_agent.config import AppConfig
 from airgap_agent.security.capabilities import Capability
 from airgap_agent.security import (
@@ -41,10 +43,12 @@ class ToolRegistry:
         policy: PolicyEngine,
         audit: AuditLogger,
         budgets: RunBudgets | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._config = config
         self._policy = policy
         self._audit = audit
+        self._metrics = metrics
         self._workspace = config.security.workspace_root
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._budgets = budgets or RunBudgets()
@@ -56,6 +60,11 @@ class ToolRegistry:
             "write_file": self._write_file,
         }
 
+    def _record_denial(self) -> None:
+        self._budgets.denials += 1
+        if self._metrics is not None:
+            self._metrics.inc_tool_denials()
+
     def invoke(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         self._budgets.tool_calls += 1
         if self._budgets.tool_calls > self._config.security.max_total_tool_calls_per_run:
@@ -64,25 +73,25 @@ class ToolRegistry:
                 tool=name,
                 reason="budget: max_total_tool_calls_per_run",
             )
-            self._budgets.denials += 1
+            self._record_denial()
             return ToolResult(ok=False, output="", error="budget exceeded: tool calls")
 
         if name not in self._config.security.allowed_tools:
             self._audit.emit("tool.denied", tool=name, reason="not in allowlist")
-            self._budgets.denials += 1
+            self._record_denial()
             return ToolResult(ok=False, output="", error=f"tool not allowed: {name}")
 
         capability = self._capability_for_tool(name)
         if str(capability) not in self._config.security.allowed_capabilities:
             self._audit.emit("tool.denied", tool=name, reason="capability not allowed", capability=str(capability))
-            self._budgets.denials += 1
+            self._record_denial()
             return ToolResult(ok=False, output="", error="capability not allowed")
 
         try:
             arguments = validate_tool_arguments(name, arguments)
         except ValueError as exc:
             self._audit.emit("tool.denied", tool=name, reason=str(exc))
-            self._budgets.denials += 1
+            self._record_denial()
             return ToolResult(ok=False, output="", error=str(exc))
 
         decision = self._policy.evaluate(
@@ -96,7 +105,7 @@ class ToolRegistry:
                 rule_id=decision.rule_id,
                 reason=decision.reason,
             )
-            self._budgets.denials += 1
+            self._record_denial()
             return ToolResult(ok=False, output="", error=decision.reason)
 
         handler = self._handlers.get(name)
@@ -147,6 +156,12 @@ class ToolRegistry:
     def _list_directory(self, args: dict[str, Any]) -> ToolResult:
         path = args.get("path", ".")
         target = resolve_workspace_path(self._workspace, path)
+        decision = self._policy.evaluate(
+            "fs.list",
+            {"path": str(target), "workspace_root": str(self._workspace)},
+        )
+        if decision.effect != "allow":
+            return ToolResult(ok=False, output="", error=decision.reason)
         if not target.is_dir():
             return ToolResult(ok=False, output="", error="not a directory")
         limit = self._config.security.max_list_entries
@@ -164,34 +179,46 @@ class ToolRegistry:
         query = args["query"].strip()
         path = args.get("path", ".")
         root = resolve_workspace_path(self._workspace, path)
+        decision = self._policy.evaluate(
+            "fs.search",
+            {"path": str(root), "workspace_root": str(self._workspace)},
+        )
+        if decision.effect != "allow":
+            return ToolResult(ok=False, output="", error=decision.reason)
         hits: list[dict[str, str]] = []
         max_file = self._config.security.max_read_bytes
         allowed_ext = set(self._config.security.search_allowed_extensions)
         files_scanned = 0
-        for file in root.rglob("*"):
-            if file.is_symlink() or not file.is_file():
-                continue
-            if allowed_ext and file.suffix not in allowed_ext:
-                continue
-            if file.stat().st_size > max_file:
-                continue
-            if self._budgets.read_bytes >= self._config.security.max_total_read_bytes_per_run:
-                break
-            files_scanned += 1
+        for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
+            for name in sorted(filenames):
+                file = Path(dirpath) / name
+                if file.is_symlink() or not file.is_file():
+                    continue
+                if allowed_ext and file.suffix not in allowed_ext:
+                    continue
+                if file.stat().st_size > max_file:
+                    continue
+                if self._budgets.read_bytes >= self._config.security.max_total_read_bytes_per_run:
+                    break
+                files_scanned += 1
+                if files_scanned > self._config.security.max_search_files:
+                    break
+                try:
+                    text = read_file_bounded(file, max_file)
+                except OSError:
+                    continue
+                self._budgets.read_bytes += len(text.encode("utf-8", errors="ignore"))
+                for i, line in enumerate(text.splitlines(), start=1):
+                    if query.lower() in line.lower():
+                        rel = file.relative_to(self._workspace.resolve())
+                        safe_line = sanitize_untrusted_content(line.strip(), max_chars=200)
+                        hits.append({"file": str(rel), "line": str(i), "text": safe_line})
+                        if len(hits) >= self._config.security.max_search_hits:
+                            break
+                if len(hits) >= self._config.security.max_search_hits:
+                    break
             if files_scanned > self._config.security.max_search_files:
                 break
-            try:
-                text = read_file_bounded(file, max_file)
-            except OSError:
-                continue
-            self._budgets.read_bytes += len(text.encode("utf-8", errors="ignore"))
-            for i, line in enumerate(text.splitlines(), start=1):
-                if query.lower() in line.lower():
-                    rel = file.relative_to(self._workspace.resolve())
-                    safe_line = sanitize_untrusted_content(line.strip(), max_chars=200)
-                    hits.append({"file": str(rel), "line": str(i), "text": safe_line})
-                    if len(hits) >= self._config.security.max_search_hits:
-                        break
             if len(hits) >= self._config.security.max_search_hits:
                 break
         return ToolResult(ok=True, output=json.dumps(hits, indent=2))
