@@ -1,4 +1,4 @@
-# Airgap Agent
+# Airgap Agent--Review yourself, not audited
 
 Airgapped, **secure-by-default** deployment and inference harness for **agentic AI** using **open-source models** (GGUF via llama.cpp, or any loopback OpenAI-compatible server).
 
