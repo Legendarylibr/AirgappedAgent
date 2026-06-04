@@ -22,11 +22,13 @@ def resolve_workspace_path(workspace_root: Path, user_path: str) -> Path:
     if ".." in relative.parts:
         raise SandboxError(f"path escapes workspace: {user_path}")
 
-    candidate = root / relative
-    if candidate.is_symlink():
-        raise SandboxError(f"symlinks are not allowed: {user_path}")
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise SandboxError(f"symlinks are not allowed: {user_path}")
 
-    target = candidate.resolve(strict=False)
+    target = (root / relative).resolve(strict=False)
     try:
         target.relative_to(root)
     except ValueError as exc:
@@ -44,9 +46,9 @@ def read_file_bounded(path: Path, max_bytes: int) -> str:
         raise SandboxError(f"failed to open file safely: {exc}") from exc
 
     try:
-        stat = os.fstat(fd)
-        if stat.st_size > max_bytes:
-            raise SandboxError(f"file exceeds max size ({stat.st_size} > {max_bytes} bytes)")
+        file_stat = os.fstat(fd)
+        if file_stat.st_size > max_bytes:
+            raise SandboxError(f"file exceeds max size ({file_stat.st_size} > {max_bytes} bytes)")
         return os.read(fd, max_bytes).decode("utf-8", errors="replace")
     finally:
         os.close(fd)

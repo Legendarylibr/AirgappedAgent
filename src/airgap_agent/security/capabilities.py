@@ -9,4 +9,3 @@ class Capability(StrEnum):
     FS_SEARCH = "fs.search"
     FS_WRITE = "fs.write"
     PY_EXEC = "py.exec"
-

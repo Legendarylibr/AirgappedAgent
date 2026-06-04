@@ -509,6 +509,10 @@ def serve(
     )
 
     class Handler(http.server.BaseHTTPRequestHandler):
+        def setup(self) -> None:
+            super().setup()
+            self.connection.settimeout(cfg.security.tool_timeout_seconds)
+
         def log_message(self, format: str, *args: object) -> None:
             return
 
@@ -634,10 +638,16 @@ def serve(
                     self._forbidden("replay detected or missing nonce")
                     return
 
+            if "Content-Length" not in self.headers:
+                self._bad_request("Content-Length required")
+                return
             try:
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
                 self._bad_request("invalid Content-Length")
+                return
+            if length <= 0:
+                self._bad_request("non-empty JSON body required")
                 return
             if length > cfg.agent.max_task_chars + 4096:
                 self._json(413, {"error": "payload too large"})
@@ -645,7 +655,10 @@ def serve(
             try:
                 raw = self.rfile.read(length).decode()
                 data = jsonlib.loads(raw) if raw else {}
-            except (UnicodeDecodeError, jsonlib.JSONDecodeError):
+            except TimeoutError:
+                self._bad_request("request body timed out")
+                return
+            except (OSError, UnicodeDecodeError, jsonlib.JSONDecodeError):
                 self._bad_request("invalid JSON body")
                 return
             if not isinstance(data, dict):

@@ -28,9 +28,7 @@ class PolicyEngine:
 
             ok, errors = verify_signed_artifact(self._policy_path, trust)
             if not ok:
-                raise PermissionError(
-                    "policy signature verification failed: " + "; ".join(errors)
-                )
+                raise PermissionError("policy signature verification failed: " + "; ".join(errors))
         self._doc = self._load(self._policy_path)
 
     @staticmethod

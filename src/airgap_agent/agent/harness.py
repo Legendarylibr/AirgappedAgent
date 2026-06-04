@@ -93,9 +93,7 @@ class AgentHarness:
             budgets,
             metrics=self._metrics,
         )
-        allowlist_block = (
-            "Allowed tools (JSON schema):\n" + tools.schema_description()
-        )
+        allowlist_block = "Allowed tools (JSON schema):\n" + tools.schema_description()
         output_hint = ""
         if self._config.agent.response_format == "json":
             output_hint = (
@@ -214,9 +212,7 @@ class AgentHarness:
                 result.error,
                 delimiters=delimiters,
             )
-            messages.append(
-                ChatMessage(role="assistant", content=sanitize_untrusted_content(text))
-            )
+            messages.append(ChatMessage(role="assistant", content=sanitize_untrusted_content(text)))
             messages.append(ChatMessage(role="user", content=observation))
 
         self._audit.emit("agent.max_iterations", tool_calls=tool_calls, run_id=rid)

@@ -37,4 +37,3 @@ def test_parse_hmac_key_hex() -> None:
     raw = "ab" * 32
     key = parse_hmac_key(raw)
     assert len(key) == 32
-

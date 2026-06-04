@@ -21,6 +21,22 @@ class BundleVerification:
     signature_ok: bool | None = None
 
 
+def _resolve_bundle_manifest_path(models_dir: Path, rel: str) -> Path:
+    relative = Path(rel)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"path escapes bundle: {rel}")
+
+    candidate = models_dir
+    for part in relative.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError(f"symlinks are not allowed in bundle manifest: {rel}")
+
+    target = candidate.resolve(strict=False)
+    target.relative_to(models_dir)
+    return target
+
+
 def write_manifest(models_dir: Path, manifest_name: str = "MANIFEST.sha256") -> Path:
     models_dir = models_dir.resolve()
     lines: list[str] = []
@@ -103,7 +119,11 @@ def verify_bundle(
             errors.append(f"invalid manifest line: {line}")
             continue
         rel = rel.strip()
-        target = models_dir / rel
+        try:
+            target = _resolve_bundle_manifest_path(models_dir, rel)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not target.is_file():
             errors.append(f"missing file: {rel}")
             continue
