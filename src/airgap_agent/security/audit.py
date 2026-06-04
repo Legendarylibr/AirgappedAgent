@@ -4,7 +4,6 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -77,7 +76,7 @@ class AuditLogger:
             **fields,
         }
         if not self._settings.enabled:
-            logger.info("audit.disabled", event=event)
+            logger.info("audit.disabled", audit_event=event)
             return
         if not self._settings.include_prompts:
             record.pop("prompt", None)

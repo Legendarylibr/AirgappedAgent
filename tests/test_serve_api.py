@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 from http.server import HTTPServer
 from pathlib import Path
@@ -8,15 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
+from airgap_agent.agent import AgentHarness
+from airgap_agent.agent.metrics import MetricsRegistry
+from airgap_agent.agent.session import SessionStore
 from airgap_agent.cli import _load
 from airgap_agent.config import AuditSettings, TrustSettings
 from airgap_agent.deployment.bootstrap import BootstrapError, validate_api_config
 from airgap_agent.deployment.health import health_report
 from airgap_agent.inference import create_backend
 from airgap_agent.security import AuditLogger
-from airgap_agent.agent import AgentHarness
-from airgap_agent.agent.metrics import MetricsRegistry
-from airgap_agent.agent.session import SessionStore
 
 
 def _dev_config(tmp_path: Path):
@@ -134,5 +133,9 @@ def test_fs_list_and_search_policy(tmp_path: Path) -> None:
     engine = PolicyEngine(Path("policies/default.yaml"), TrustSettings(require_signed_policy=False))
     ws = tmp_path / "workspace"
     ws.mkdir()
-    assert engine.evaluate("fs.list", {"path": str(ws), "workspace_root": str(ws)}).effect == "allow"
-    assert engine.evaluate("fs.search", {"path": str(ws), "workspace_root": str(ws)}).effect == "allow"
+    assert (
+        engine.evaluate("fs.list", {"path": str(ws), "workspace_root": str(ws)}).effect == "allow"
+    )
+    assert (
+        engine.evaluate("fs.search", {"path": str(ws), "workspace_root": str(ws)}).effect == "allow"
+    )

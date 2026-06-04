@@ -15,5 +15,5 @@ def test_session_stores_sanitized_messages() -> None:
     )
     history = store.get_history(sid)
     assert history is not None
-    assert "TOOL__CALL" in history[0].content
-    assert "TOOL__CALL" in history[1].content
+    assert "[filtered]" in history[0].content
+    assert "[filtered]" in history[1].content

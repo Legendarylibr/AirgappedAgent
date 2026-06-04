@@ -7,7 +7,6 @@ from typing import Any, Literal
 import yaml
 
 from airgap_agent.config import TrustSettings
-from airgap_agent.deployment.bundle import verify_signed_artifact
 
 Effect = Literal["allow", "deny"]
 
@@ -25,6 +24,8 @@ class PolicyEngine:
     def __init__(self, policy_path: Path, trust: TrustSettings | None = None) -> None:
         self._policy_path = policy_path.resolve()
         if trust and trust.require_signed_policy:
+            from airgap_agent.deployment.bundle import verify_signed_artifact
+
             ok, errors = verify_signed_artifact(self._policy_path, trust)
             if not ok:
                 raise PermissionError(

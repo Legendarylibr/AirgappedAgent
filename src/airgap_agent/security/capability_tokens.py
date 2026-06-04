@@ -17,6 +17,7 @@ def _b64url_decode(text: str) -> bytes:
     pad = "=" * (-len(text) % 4)
     return base64.urlsafe_b64decode((text + pad).encode("ascii"))
 
+
 def parse_hmac_key(raw: str) -> bytes:
     """
     Parse an HMAC key from hex or base64.
@@ -56,7 +57,7 @@ class CapabilityTokenClaims:
     path: str | None = None
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "CapabilityTokenClaims":
+    def from_dict(cls, d: dict[str, Any]) -> CapabilityTokenClaims:
         return cls(
             iat=int(d["iat"]),
             exp=int(d["exp"]),
@@ -105,7 +106,9 @@ def mint_capability_token(
     return f"{_b64url_encode(payload)}.{_b64url_encode(sig)}"
 
 
-def verify_capability_token(key: bytes, token: str, *, now: int | None = None) -> CapabilityTokenClaims:
+def verify_capability_token(
+    key: bytes, token: str, *, now: int | None = None
+) -> CapabilityTokenClaims:
     try:
         payload_b64, sig_b64 = token.split(".", 1)
     except ValueError as exc:
@@ -125,4 +128,3 @@ def verify_capability_token(key: bytes, token: str, *, now: int | None = None) -
     if claims.iat > now_ts + 30:
         raise ValueError("token issued in the future")
     return claims
-

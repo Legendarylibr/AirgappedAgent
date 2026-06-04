@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from airgap_agent.agent import AgentHarness
-from airgap_agent.config import AppConfig, AuditSettings, SecuritySettings
+from airgap_agent.config import AppConfig, AuditSettings
 from airgap_agent.inference import create_backend
 from airgap_agent.security import AuditLogger, PolicyEngine
 

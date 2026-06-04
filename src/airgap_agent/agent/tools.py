@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
+from airgap_agent.agent.metrics import MetricsRegistry
 from airgap_agent.agent.schemas import validate_tool_arguments
 from airgap_agent.agent.tool_gate import sanitize_untrusted_content
-from airgap_agent.agent.metrics import MetricsRegistry
 from airgap_agent.config import AppConfig
-from airgap_agent.security.capabilities import Capability
 from airgap_agent.security import (
     AuditLogger,
     PolicyEngine,
@@ -20,6 +20,8 @@ from airgap_agent.security import (
     run_python_sandboxed,
     write_file_bounded,
 )
+from airgap_agent.security.capabilities import Capability
+
 
 @dataclass
 class RunBudgets:
@@ -83,7 +85,12 @@ class ToolRegistry:
 
         capability = self._capability_for_tool(name)
         if str(capability) not in self._config.security.allowed_capabilities:
-            self._audit.emit("tool.denied", tool=name, reason="capability not allowed", capability=str(capability))
+            self._audit.emit(
+                "tool.denied",
+                tool=name,
+                reason="capability not allowed",
+                capability=str(capability),
+            )
             self._record_denial()
             return ToolResult(ok=False, output="", error="capability not allowed")
 
@@ -96,7 +103,11 @@ class ToolRegistry:
 
         decision = self._policy.evaluate(
             "tool.invoke",
-            {"tool_name": name, "capability": str(capability), "workspace_root": str(self._workspace)},
+            {
+                "tool_name": name,
+                "capability": str(capability),
+                "workspace_root": str(self._workspace),
+            },
         )
         if decision.effect != "allow":
             self._audit.emit(
@@ -147,7 +158,10 @@ class ToolRegistry:
             return ToolResult(ok=False, output="", error="not a file")
         max_one = self._config.security.max_read_bytes
         size = target.stat().st_size
-        if self._budgets.read_bytes + min(size, max_one) > self._config.security.max_total_read_bytes_per_run:
+        if (
+            self._budgets.read_bytes + min(size, max_one)
+            > self._config.security.max_total_read_bytes_per_run
+        ):
             return ToolResult(ok=False, output="", error="budget exceeded: read bytes")
         content = read_file_bounded(target, max_one)
         self._budgets.read_bytes += len(content.encode("utf-8", errors="ignore"))
@@ -227,7 +241,9 @@ class ToolRegistry:
         path = args["path"]
         content = args["content"]
         target = resolve_workspace_path(self._workspace, path)
-        if target.suffix and target.suffix not in set(self._config.security.write_allowed_extensions):
+        if target.suffix and target.suffix not in set(
+            self._config.security.write_allowed_extensions
+        ):
             return ToolResult(ok=False, output="", error=f"extension not allowed: {target.suffix}")
         decision = self._policy.evaluate(
             "fs.write",
@@ -239,7 +255,9 @@ class ToolRegistry:
             return ToolResult(ok=False, output="", error="path is a directory")
         write_file_bounded(target, content, self._config.security.max_write_bytes)
         rel = target.relative_to(self._workspace.resolve())
-        return ToolResult(ok=True, output=json.dumps({"written": str(rel), "bytes": len(content.encode("utf-8"))}))
+        return ToolResult(
+            ok=True, output=json.dumps({"written": str(rel), "bytes": len(content.encode("utf-8"))})
+        )
 
     def _run_python(self, args: dict[str, Any]) -> ToolResult:
         self._budgets.python_execs += 1

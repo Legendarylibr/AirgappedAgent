@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 import yaml
 from pydantic import Field, field_validator, model_validator
@@ -29,13 +31,20 @@ class InferenceSettings(BaseSettings):
     @field_validator("base_url")
     @classmethod
     def base_url_must_be_loopback(cls, v: str) -> str:
-        lowered = v.lower()
-        if not (
-            lowered.startswith("http://127.0.0.1")
-            or lowered.startswith("http://localhost")
-            or lowered.startswith("https://127.0.0.1")
-            or lowered.startswith("https://localhost")
-        ):
+        parsed = urlparse(v)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("inference.base_url must use http or https")
+        if not parsed.hostname:
+            raise ValueError("inference.base_url must include a hostname")
+
+        hostname = parsed.hostname.rstrip(".").lower()
+        is_loopback = hostname == "localhost"
+        if not is_loopback:
+            try:
+                is_loopback = ipaddress.ip_address(hostname).is_loopback
+            except ValueError:
+                is_loopback = False
+        if not is_loopback:
             raise ValueError("inference.base_url must target loopback only in airgapped mode")
         return v
 

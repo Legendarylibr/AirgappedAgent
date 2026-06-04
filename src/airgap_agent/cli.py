@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 import structlog
 import typer
@@ -11,6 +10,10 @@ from rich.json import JSON
 from rich.panel import Panel
 
 from airgap_agent.agent import AgentHarness
+from airgap_agent.agent.eval import load_eval_cases, run_eval_cases
+from airgap_agent.agent.metrics import MetricsRegistry
+from airgap_agent.agent.session import SessionStore
+from airgap_agent.canaries import run_canaries
 from airgap_agent.config import AppConfig, BundleSettings, TrustSettings, load_config
 from airgap_agent.crypto import generate_keypair, verify_audit_chain
 from airgap_agent.crypto.encrypt import open_line, parse_key_material
@@ -20,19 +23,15 @@ from airgap_agent.deployment import (
     health_report,
     sign_manifest,
     validate_api_config,
-    verify_capability_token_from_headers,
     verify_api_token,
     verify_bundle,
+    verify_capability_token_from_headers,
     write_manifest,
 )
 from airgap_agent.deployment.bundle import verify_signed_artifact
 from airgap_agent.inference import create_backend
 from airgap_agent.inference.base import ChatMessage
 from airgap_agent.security import AuditLogger
-from airgap_agent.agent.eval import load_eval_cases, run_eval_cases
-from airgap_agent.agent.metrics import MetricsRegistry
-from airgap_agent.agent.session import SessionStore
-from airgap_agent.canaries import run_canaries
 
 app = typer.Typer(
     name="airgap-agent",
@@ -52,7 +51,7 @@ def _setup_logging() -> None:
     )
 
 
-def _load(path: Optional[Path], dev: bool) -> AppConfig:
+def _load(path: Path | None, dev: bool) -> AppConfig:
     config = load_config(path)
     if dev:
         config.airgap.mode = "permissive"
@@ -74,7 +73,7 @@ def _load(path: Optional[Path], dev: bool) -> AppConfig:
 @app.command()
 def run(
     task: str = typer.Argument(..., help="Task for the agent to complete offline."),
-    config: Optional[Path] = typer.Option(None, "--config", "-c", help="YAML config path."),
+    config: Path | None = typer.Option(None, "--config", "-c", help="YAML config path."),
     dev: bool = typer.Option(False, "--dev", help="Relaxed paths for local development."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON result."),
 ) -> None:
@@ -115,7 +114,7 @@ def run(
 
 @app.command()
 def health(
-    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
     dev: bool = typer.Option(False, "--dev"),
 ) -> None:
     """Report inference and bundle health (loopback only)."""
@@ -149,9 +148,9 @@ def init(
 
 @app.command()
 def chat(
-    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
     dev: bool = typer.Option(False, "--dev"),
-    session_id: Optional[str] = typer.Option(None, "--session", help="Resume session id."),
+    session_id: str | None = typer.Option(None, "--session", help="Resume session id."),
 ) -> None:
     """Interactive multi-turn agent loop (loopback CLI, no network)."""
     _setup_logging()
@@ -206,9 +205,11 @@ def eval_cmd(
         Path("eval/fixtures"),
         help="YAML file or directory of eval cases.",
     ),
-    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
     dev: bool = typer.Option(False, "--dev"),
-    with_backend: bool = typer.Option(False, "--with-backend", help="Run backend_completion cases."),
+    with_backend: bool = typer.Option(
+        False, "--with-backend", help="Run backend_completion cases."
+    ),
 ) -> None:
     """Run declarative security/behavior eval cases (offline)."""
     _setup_logging()
@@ -230,7 +231,7 @@ def eval_cmd(
 
 @app.command("canary")
 def canary_cmd(
-    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
     dev: bool = typer.Option(False, "--dev"),
 ) -> None:
     """Run lightweight security regression canaries against the configured backend."""
@@ -247,9 +248,9 @@ def canary_cmd(
 
 @app.command("verify-bundle")
 def verify_bundle_cmd(
-    models_dir: Optional[Path] = typer.Option(None, "--models-dir"),
+    models_dir: Path | None = typer.Option(None, "--models-dir"),
     manifest: str = typer.Option("MANIFEST.sha256", "--manifest"),
-    trust_dir: Optional[Path] = typer.Option(None, "--trust-dir"),
+    trust_dir: Path | None = typer.Option(None, "--trust-dir"),
     require_signature: bool = typer.Option(True, "--require-signature/--no-require-signature"),
 ) -> None:
     """Verify offline model bundle checksums and Ed25519 signature."""
@@ -288,7 +289,9 @@ def write_manifest_cmd(
 @app.command("sign-bundle")
 def sign_bundle_cmd(
     models_dir: Path = typer.Argument(..., help="Directory containing model files."),
-    private_key: Path = typer.Option(..., "--private-key", "-k", help="Ed25519 PEM (staging only)."),
+    private_key: Path = typer.Option(
+        ..., "--private-key", "-k", help="Ed25519 PEM (staging only)."
+    ),
     key_id: str = typer.Option("release", "--key-id", help="Signer key identifier."),
     manifest: str = typer.Option("MANIFEST.sha256", "--manifest"),
 ) -> None:
@@ -318,8 +321,10 @@ def hf_download_cmd(
         ...,
         help="Hugging Face repo, e.g. 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF'.",
     ),
-    models_dir: Path = typer.Option(Path("./models"), "--models-dir", help="Destination models directory."),
-    revision: Optional[str] = typer.Option(None, "--revision", help="Branch/tag/commit (optional)."),
+    models_dir: Path = typer.Option(
+        Path("./models"), "--models-dir", help="Destination models directory."
+    ),
+    revision: str | None = typer.Option(None, "--revision", help="Branch/tag/commit (optional)."),
     pattern: list[str] = typer.Option(
         [],
         "--pattern",
@@ -348,7 +353,9 @@ def hf_download_cmd(
         f"[green]Downloaded[/green] {len(result.downloaded_paths)} files into {result.local_dir}"
         + (f" (commit {result.resolved_commit})" if result.resolved_commit else "")
     )
-    console.print("Next: airgap-agent sign-bundle ./models --private-key <signing.pem> --key-id <id>")
+    console.print(
+        "Next: airgap-agent sign-bundle ./models --private-key <signing.pem> --key-id <id>"
+    )
 
 
 @app.command("keys")
@@ -386,6 +393,7 @@ def mint_token_cmd(
     """
     import os
     import uuid
+
     from airgap_agent.security.capability_tokens import mint_capability_token, parse_hmac_key
 
     key = os.environ.get("AIRGAP_API_HMAC_KEY", "")
@@ -413,7 +421,9 @@ def mint_token_cmd(
 @app.command("verify-audit")
 def verify_audit_cmd(
     log_path: Path = typer.Argument(..., help="Audit JSONL log file."),
-    decrypt: bool = typer.Option(False, "--decrypt", help="Decrypt ENC1 lines before chain verify."),
+    decrypt: bool = typer.Option(
+        False, "--decrypt", help="Decrypt ENC1 lines before chain verify."
+    ),
 ) -> None:
     """Verify tamper-evident hash chain in an audit log (no trust required)."""
     import os
@@ -464,7 +474,7 @@ def verify_policy_cmd(
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8741, "--port"),
-    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
     dev: bool = typer.Option(False, "--dev"),
 ) -> None:
     """Minimal loopback HTTP API for health and agent runs (no external deps)."""
@@ -663,15 +673,28 @@ def serve(
             budgets = claims.get("budgets", {}) or {}
             scoped.security.max_total_tool_calls_per_run = min(
                 scoped.security.max_total_tool_calls_per_run,
-                int(budgets.get("max_total_tool_calls_per_run", scoped.security.max_total_tool_calls_per_run)),
+                int(
+                    budgets.get(
+                        "max_total_tool_calls_per_run", scoped.security.max_total_tool_calls_per_run
+                    )
+                ),
             )
             scoped.security.max_total_read_bytes_per_run = min(
                 scoped.security.max_total_read_bytes_per_run,
-                int(budgets.get("max_total_read_bytes_per_run", scoped.security.max_total_read_bytes_per_run)),
+                int(
+                    budgets.get(
+                        "max_total_read_bytes_per_run", scoped.security.max_total_read_bytes_per_run
+                    )
+                ),
             )
             scoped.security.max_total_python_execs_per_run = min(
                 scoped.security.max_total_python_execs_per_run,
-                int(budgets.get("max_total_python_execs_per_run", scoped.security.max_total_python_execs_per_run)),
+                int(
+                    budgets.get(
+                        "max_total_python_execs_per_run",
+                        scoped.security.max_total_python_execs_per_run,
+                    )
+                ),
             )
 
             metrics.inc_run()
