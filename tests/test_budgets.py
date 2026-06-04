@@ -58,4 +58,3 @@ def test_budget_blocks_total_python_execs(tmp_path: Path) -> None:
     r2 = tools.invoke("run_python", {"source": "return 2+2"})
     assert not r2.ok
     assert "budget" in (r2.error or "").lower()
-

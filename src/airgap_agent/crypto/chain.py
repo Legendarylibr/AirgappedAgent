@@ -15,7 +15,7 @@ def canonical_payload(record: dict[str, Any]) -> bytes:
 
 
 def compute_entry_hash(prev_hash: str, record: dict[str, Any]) -> str:
-    material = f"{prev_hash}\n".encode("utf-8") + canonical_payload(record)
+    material = f"{prev_hash}\n".encode() + canonical_payload(record)
     return hashlib.sha256(material).hexdigest()
 
 

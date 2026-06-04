@@ -29,11 +29,10 @@ _ZERO_WIDTH = str.maketrans(
         "\u2060": "",
     }
 )
+_INVISIBLE_PREFIX_RE = re.compile(r"[\u200b\u200c\u200d\ufeff\u2060\u202a-\u202e\u2066-\u2069]")
 
 # Unicode bidi and embedding controls (common injection carriers).
-_BIDI_RE = re.compile(
-    r"[\u202a-\u202e\u2066-\u2069\ufeff]"
-)
+_BIDI_RE = re.compile(r"[\u202a-\u202e\u2066-\u2069\ufeff]")
 
 
 @dataclass(frozen=True)
@@ -102,12 +101,7 @@ def wrap_user_task(
     *,
     allowlist_block: str,
 ) -> str:
-    return (
-        f"{allowlist_block}\n\n"
-        f"{delimiters.user_task_open}\n"
-        f"{task}\n"
-        f"{delimiters.user_task_close}"
-    )
+    return f"{allowlist_block}\n\n{delimiters.user_task_open}\n{task}\n{delimiters.user_task_close}"
 
 
 def parse_tool_call(text: str, allowed_tools: frozenset[str]) -> tuple[str, dict[str, Any]] | None:
@@ -115,7 +109,12 @@ def parse_tool_call(text: str, allowed_tools: frozenset[str]) -> tuple[str, dict
     Parse a single server-gated tool invocation from model output.
     Requires TOOL_CALL at the beginning of the response (after strip).
     """
-    stripped = _normalize_text(text.strip())
+    raw_stripped = text.strip()
+    prefix_candidate = raw_stripped[: len(_TOOL_CALL_PREFIX) + 8]
+    if _INVISIBLE_PREFIX_RE.search(prefix_candidate):
+        return None
+
+    stripped = _normalize_text(raw_stripped)
     if not stripped.startswith(_TOOL_CALL_PREFIX):
         return None
 

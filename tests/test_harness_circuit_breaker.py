@@ -33,4 +33,3 @@ def test_invalid_tool_call_circuit_breaker(tmp_path: Path) -> None:
 
     result = harness.run("do something")
     assert "too many invalid tool calls" in result.answer.lower()
-

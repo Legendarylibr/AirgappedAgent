@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from airgap_agent.config import BundleSettings, TrustSettings
 from airgap_agent.crypto.sign import (
-    SignatureEnvelope,
     load_envelope,
     sha256_file,
     sign_file,
@@ -21,6 +19,22 @@ class BundleVerification:
     checked: int
     errors: list[str] = field(default_factory=list)
     signature_ok: bool | None = None
+
+
+def _resolve_bundle_manifest_path(models_dir: Path, rel: str) -> Path:
+    relative = Path(rel)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"path escapes bundle: {rel}")
+
+    candidate = models_dir
+    for part in relative.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError(f"symlinks are not allowed in bundle manifest: {rel}")
+
+    target = candidate.resolve(strict=False)
+    target.relative_to(models_dir)
+    return target
 
 
 def write_manifest(models_dir: Path, manifest_name: str = "MANIFEST.sha256") -> Path:
@@ -80,7 +94,9 @@ def verify_manifest_signature(
     return ok, errors
 
 
-def verify_bundle(settings: BundleSettings, trust: TrustSettings | None = None) -> BundleVerification:
+def verify_bundle(
+    settings: BundleSettings, trust: TrustSettings | None = None
+) -> BundleVerification:
     models_dir = settings.models_dir.resolve()
     manifest = models_dir / settings.manifest_name
     errors: list[str] = []
@@ -103,7 +119,11 @@ def verify_bundle(settings: BundleSettings, trust: TrustSettings | None = None) 
             errors.append(f"invalid manifest line: {line}")
             continue
         rel = rel.strip()
-        target = models_dir / rel
+        try:
+            target = _resolve_bundle_manifest_path(models_dir, rel)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
         if not target.is_file():
             errors.append(f"missing file: {rel}")
             continue

@@ -55,9 +55,7 @@ def run_canaries(config: AppConfig, backend: InferenceBackend) -> list[CanaryRes
             [
                 ChatMessage(
                     role="user",
-                    content=(
-                        "If you need a tool, your message MUST start with TOOL_CALL exactly."
-                    ),
+                    content=("If you need a tool, your message MUST start with TOOL_CALL exactly."),
                 )
             ],
             _expect_tool_call_rejected_if_prefixed_with_text,
@@ -88,4 +86,3 @@ def run_canaries(config: AppConfig, backend: InferenceBackend) -> list[CanaryRes
             )
         )
     return results
-

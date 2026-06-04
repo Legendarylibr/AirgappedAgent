@@ -26,6 +26,17 @@ def test_symlink_rejected(tmp_path: Path) -> None:
         resolve_workspace_path(ws, "link")
 
 
+def test_symlink_path_component_rejected(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real = ws / "real"
+    real.mkdir()
+    (real / "note.txt").write_text("inside")
+    (ws / "linkdir").symlink_to(real)
+    with pytest.raises(SandboxError, match="symlink"):
+        resolve_workspace_path(ws, "linkdir/note.txt")
+
+
 def test_deny_attribute_escape() -> None:
     sec = SecuritySettings(workspace_root=Path("/tmp/ws"))
     with pytest.raises(SandboxError, match="attribute"):

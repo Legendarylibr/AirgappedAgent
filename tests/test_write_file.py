@@ -2,7 +2,7 @@ from pathlib import Path
 
 from airgap_agent.agent.tools import ToolRegistry
 from airgap_agent.config import AppConfig, AuditSettings, TrustSettings
-from airgap_agent.security import AuditLogger, PolicyEngine
+from airgap_agent.security import AuditLogger, PolicyEngine, SandboxError, write_file_bounded
 
 
 def test_write_file_workspace_only(tmp_path: Path) -> None:
@@ -37,3 +37,21 @@ def test_write_file_workspace_only(tmp_path: Path) -> None:
     r = tools.invoke("write_file", {"path": "out.txt", "content": "hello"})
     assert r.ok
     assert (ws / "out.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_write_file_rejects_symlink_target(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    link = ws / "link.txt"
+    link.symlink_to(secret)
+
+    try:
+        write_file_bounded(link, "replacement", 100)
+    except SandboxError as exc:
+        assert "symlinks are not allowed" in str(exc)
+    else:
+        raise AssertionError("write_file_bounded followed a symlink")
+
+    assert secret.read_text(encoding="utf-8") == "secret"

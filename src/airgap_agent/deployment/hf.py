@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 class HuggingFaceHubUnavailable(RuntimeError):
@@ -78,7 +78,9 @@ def hf_snapshot_download(
     )
 
 
-def _write_hf_source_metadata(local_dir: Path, *, repo_id: str, revision: str | None, commit: str | None) -> None:
+def _write_hf_source_metadata(
+    local_dir: Path, *, repo_id: str, revision: str | None, commit: str | None
+) -> None:
     """
     Records provenance into the bundle so third parties can verify the exact upstream reference
     (plus our manifest+signature for integrity/authenticity).
@@ -86,4 +88,3 @@ def _write_hf_source_metadata(local_dir: Path, *, repo_id: str, revision: str | 
     path = local_dir / "HF_SOURCE.json"
     payload = {"repo_id": repo_id, "revision": revision, "resolved_commit": commit}
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import os
 import subprocess
 import sys
 import textwrap
@@ -185,7 +184,9 @@ def run_python_sandboxed(source: str, security: SecuritySettings) -> str:
     return "" if result is None else str(result)
 
 
-def _run_python_docker(wrapped: str, security: SecuritySettings, settings: PythonSandboxSettings) -> str:
+def _run_python_docker(
+    wrapped: str, security: SecuritySettings, settings: PythonSandboxSettings
+) -> str:
     docker = which("docker")
     if not docker:
         raise SandboxError("docker sandbox requested but docker is not installed")

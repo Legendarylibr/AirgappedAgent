@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from pathlib import Path
+from threading import Lock
 
 
 class ReplayNonceCache:
@@ -12,6 +14,7 @@ class ReplayNonceCache:
         self._path = path
         self._max_entries = max_entries
         self._nonces: dict[str, int] = {}
+        self._lock = Lock()
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
             self._load()
@@ -29,7 +32,7 @@ class ReplayNonceCache:
     def _persist(self) -> None:
         if self._path is None:
             return
-        tmp = self._path.with_suffix(".tmp")
+        tmp = self._path.with_name(f".{self._path.name}.{secrets.token_hex(8)}.tmp")
         tmp.write_text(json.dumps(self._nonces), encoding="utf-8")
         tmp.replace(self._path)
 
@@ -51,11 +54,12 @@ class ReplayNonceCache:
         """
         if not nonce:
             return False
-        now = int(time.time())
-        self._prune(now)
-        if nonce in self._nonces:
-            return False
-        self._nonces[str(nonce)] = int(exp)
-        self._trim()
-        self._persist()
-        return True
+        with self._lock:
+            now = int(time.time())
+            self._prune(now)
+            if nonce in self._nonces:
+                return False
+            self._nonces[str(nonce)] = int(exp)
+            self._trim()
+            self._persist()
+            return True

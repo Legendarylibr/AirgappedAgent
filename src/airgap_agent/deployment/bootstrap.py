@@ -14,6 +14,15 @@ class BootstrapError(Exception):
     pass
 
 
+def _is_production_like_path(path: Path) -> bool:
+    parts = path.resolve().parts
+    return parts[-2:] == ("etc", "airgap-agent") or parts[-3:] == (
+        "var",
+        "lib",
+        "airgap-agent",
+    )
+
+
 def ensure_dev_allowed(dev: bool) -> None:
     if not dev:
         return
@@ -21,7 +30,7 @@ def ensure_dev_allowed(dev: bool) -> None:
         return
     cwd = Path.cwd().resolve()
     prod_roots = (Path("/etc/airgap-agent"), Path("/var/lib/airgap-agent"))
-    if any(str(cwd).startswith(str(root)) for root in prod_roots):
+    if any(str(cwd).startswith(str(root)) for root in prod_roots) or _is_production_like_path(cwd):
         raise BootstrapError(
             "refusing --dev under production paths; export AIRGAP_ALLOW_DEV=1 to override"
         )
@@ -98,7 +107,8 @@ def verify_capability_token_from_headers(config: AppConfig, headers: dict[str, s
     raw_key = os.environ.get(config.api.capability_token_env, "")
     if not raw_key:
         raise BootstrapError(
-            f"{config.api.capability_token_env} must be set when api.require_capability_token is true"
+            f"{config.api.capability_token_env} must be set when "
+            "api.require_capability_token is true"
         )
     header = config.api.capability_token_header
     token = headers.get(header, "")

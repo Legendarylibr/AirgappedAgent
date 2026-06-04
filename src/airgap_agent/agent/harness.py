@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from airgap_agent.agent.metrics import MetricsRegistry
 from airgap_agent.agent.prompts import DEFAULT_SYSTEM_PROMPT
 from airgap_agent.agent.tool_gate import (
     format_tool_observation,
@@ -17,7 +18,6 @@ from airgap_agent.agent.tool_gate import (
     sanitize_untrusted_content,
     wrap_user_task,
 )
-from airgap_agent.agent.metrics import MetricsRegistry
 from airgap_agent.agent.tools import RunBudgets, ToolRegistry
 from airgap_agent.config import AppConfig
 from airgap_agent.inference.base import ChatMessage, InferenceBackend
@@ -49,8 +49,8 @@ class AgentHarness:
         self._backend = backend
         self._policy = policy
         self._audit = audit
-        self._budgets = budgets or RunBudgets()
-        self._tools = ToolRegistry(config, policy, audit, self._budgets, metrics=metrics)
+        self._budgets = budgets
+        self._metrics = metrics
         self._system = self._load_system_prompt()
         self._allowed_tools = frozenset(config.security.allowed_tools)
 
@@ -85,9 +85,15 @@ class AgentHarness:
 
         rid = run_id or uuid.uuid4().hex
         delimiters = make_run_delimiters(rid)
-        allowlist_block = (
-            "Allowed tools (JSON schema):\n" + self._tools.schema_description()
+        budgets = self._budgets or RunBudgets()
+        tools = ToolRegistry(
+            self._config,
+            self._policy,
+            self._audit,
+            budgets,
+            metrics=self._metrics,
         )
+        allowlist_block = "Allowed tools (JSON schema):\n" + tools.schema_description()
         output_hint = ""
         if self._config.agent.response_format == "json":
             output_hint = (
@@ -144,7 +150,7 @@ class AgentHarness:
                             iterations=i + 1,
                             tool_calls=tool_calls,
                             run_id=rid,
-                            budget_denials=self._budgets.denials,
+                            budget_denials=budgets.denials,
                         )
                     messages.append(
                         ChatMessage(
@@ -193,12 +199,12 @@ class AgentHarness:
                     tool_calls=tool_calls,
                     run_id=rid,
                     structured=structured,
-                    budget_denials=self._budgets.denials,
+                    budget_denials=budgets.denials,
                 )
 
             tool_name, arguments = parsed
             tool_calls += 1
-            result = self._tools.invoke(tool_name, arguments)
+            result = tools.invoke(tool_name, arguments)
             observation = format_tool_observation(
                 tool_name,
                 result.ok,
@@ -206,9 +212,7 @@ class AgentHarness:
                 result.error,
                 delimiters=delimiters,
             )
-            messages.append(
-                ChatMessage(role="assistant", content=sanitize_untrusted_content(text))
-            )
+            messages.append(ChatMessage(role="assistant", content=sanitize_untrusted_content(text)))
             messages.append(ChatMessage(role="user", content=observation))
 
         self._audit.emit("agent.max_iterations", tool_calls=tool_calls, run_id=rid)
@@ -217,7 +221,7 @@ class AgentHarness:
             iterations=self._config.agent.max_iterations,
             tool_calls=tool_calls,
             run_id=rid,
-            budget_denials=self._budgets.denials,
+            budget_denials=budgets.denials,
         )
 
 
