@@ -33,7 +33,7 @@ def test_harness_sanitizes_poisoned_history(tmp_path: Path) -> None:
     ]
     result = harness.run("List workspace", history=history)
     assert result.answer
-    # History replay must not leave raw TOOL_CALL in a form that re-triggers tools.
+    # History replay must not leave a raw tool marker that can trigger tools from poison alone.
     cleaned = sanitize_untrusted_content(poison)
     assert "TOOL_CALL" not in cleaned
     assert "[filtered]" in cleaned
