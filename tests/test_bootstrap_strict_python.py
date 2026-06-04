@@ -1,5 +1,6 @@
-import pytest
 from pathlib import Path
+
+import pytest
 
 from airgap_agent.config import AppConfig, TrustSettings
 from airgap_agent.deployment.bootstrap import BootstrapError, ensure_runtime_ready

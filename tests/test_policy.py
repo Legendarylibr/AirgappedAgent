@@ -22,7 +22,10 @@ def test_fs_list_under_workspace() -> None:
     engine = PolicyEngine(Path("policies/default.yaml"), _TRUST)
     d = engine.evaluate(
         "fs.list",
-        {"path": "/var/lib/airgap-agent/workspace", "workspace_root": "/var/lib/airgap-agent/workspace"},
+        {
+            "path": "/var/lib/airgap-agent/workspace",
+            "workspace_root": "/var/lib/airgap-agent/workspace",
+        },
     )
     assert d.effect == "allow"
 

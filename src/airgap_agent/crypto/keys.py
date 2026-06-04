@@ -36,7 +36,9 @@ def generate_keypair(out_dir: Path, key_id: str) -> tuple[Path, Path]:
     private_path.chmod(0o600)
     public_path.write_bytes(public_bytes)
     meta_path.write_text(
-        json.dumps({"key_id": key_id, "algorithm": "ed25519", "purpose": "release-signing"}, indent=2)
+        json.dumps(
+            {"key_id": key_id, "algorithm": "ed25519", "purpose": "release-signing"}, indent=2
+        )
         + "\n",
         encoding="utf-8",
     )

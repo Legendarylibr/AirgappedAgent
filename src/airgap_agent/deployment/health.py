@@ -10,17 +10,25 @@ from airgap_agent.inference.base import InferenceBackend
 
 
 def health_report(config: AppConfig, backend: InferenceBackend) -> dict[str, Any]:
-    bundle = verify_bundle(config.bundle, config.trust) if config.airgap.require_bundle_manifest else None
+    bundle = (
+        verify_bundle(config.bundle, config.trust)
+        if config.airgap.require_bundle_manifest
+        else None
+    )
     workspace = config.security.workspace_root
     workspace_ok = workspace.exists() and workspace.is_dir()
     audit_path = config.audit.log_path
     audit_parent = audit_path.parent
-    audit_writable = audit_parent.exists() and audit_parent.is_dir() and os.access(audit_parent, os.W_OK)
+    audit_writable = (
+        audit_parent.exists() and audit_parent.is_dir() and os.access(audit_parent, os.W_OK)
+    )
     policy_path = resolve_policy_path(config)
     policy_exists = policy_path.exists()
 
     return {
-        "status": "ok" if workspace_ok and (not config.audit.enabled or audit_writable) else "degraded",
+        "status": "ok"
+        if workspace_ok and (not config.audit.enabled or audit_writable)
+        else "degraded",
         "airgap_mode": config.airgap.mode,
         "deny_egress": config.airgap.deny_egress,
         "inference": backend.health(),

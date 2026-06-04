@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from airgap_agent.config import BundleSettings, TrustSettings
 from airgap_agent.crypto.sign import (
-    SignatureEnvelope,
     load_envelope,
     sha256_file,
     sign_file,
@@ -80,7 +78,9 @@ def verify_manifest_signature(
     return ok, errors
 
 
-def verify_bundle(settings: BundleSettings, trust: TrustSettings | None = None) -> BundleVerification:
+def verify_bundle(
+    settings: BundleSettings, trust: TrustSettings | None = None
+) -> BundleVerification:
     models_dir = settings.models_dir.resolve()
     manifest = models_dir / settings.manifest_name
     errors: list[str] = []

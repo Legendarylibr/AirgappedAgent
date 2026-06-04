@@ -4,7 +4,7 @@ from pathlib import Path
 
 from airgap_agent.config import AuditSettings, BundleSettings, TrustSettings
 from airgap_agent.crypto import generate_keypair, verify_audit_chain
-from airgap_agent.crypto.encrypt import open_line, parse_key_material, seal_line
+from airgap_agent.crypto.encrypt import open_line, parse_key_material
 from airgap_agent.deployment.bundle import sign_manifest, verify_bundle
 from airgap_agent.security import AuditLogger
 from airgap_agent.security.policy import PolicyEngine

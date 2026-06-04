@@ -20,7 +20,9 @@ class SessionRecord:
 class SessionStore:
     """Bounded in-memory conversation store for loopback API multi-turn runs."""
 
-    def __init__(self, *, max_sessions: int = 100, max_messages: int = 50, ttl_seconds: int = 3600) -> None:
+    def __init__(
+        self, *, max_sessions: int = 100, max_messages: int = 50, ttl_seconds: int = 3600
+    ) -> None:
         self._max_sessions = max_sessions
         self._max_messages = max_messages
         self._ttl_seconds = ttl_seconds
@@ -78,7 +80,9 @@ class SessionStore:
 
     def _purge_expired(self) -> None:
         now = time.time()
-        expired = [sid for sid, rec in self._sessions.items() if now - rec.updated_at > self._ttl_seconds]
+        expired = [
+            sid for sid, rec in self._sessions.items() if now - rec.updated_at > self._ttl_seconds
+        ]
         for sid in expired:
             self._sessions.pop(sid, None)
 
