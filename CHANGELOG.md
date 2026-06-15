@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Bump dependency lower bounds: cryptography, httpx, pydantic, pydantic-settings, structlog, typer, rich, llama-cpp-python, huggingface_hub, pytest-asyncio, and ruff.
+- Bump dependency version constraints: cryptography 49.x, llama-cpp-python, huggingface_hub, and pytest.
 - Fix license metadata to match GPL-3.0 (LICENSE + README).
 - Harden loopback API: startup secret validation, constant-time Bearer auth, 403 vs 401, safe JSON parsing, dev-mode auth parity.
 - Add fs.list/fs.search path-scoped policy enforcement; harden search_text with os.walk (no symlink follow).
