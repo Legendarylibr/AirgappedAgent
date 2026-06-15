@@ -22,7 +22,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-  "cryptography>=46.0.6,<49",
+  "cryptography>=49.0.0,<50",
   "httpx>=0.28,<1",
   "pydantic>=2.13,<3",
   "pydantic-settings>=2.14,<3",
@@ -33,9 +33,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llama = ["llama-cpp-python>=0.3.28,<1"]
-hf = ["huggingface_hub>=1.18,<2"]
-dev = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.15,<1"]
+llama = ["llama-cpp-python>=0.3.29,<1"]
+hf = ["huggingface_hub>=1.19,<2"]
+dev = ["pytest>=9.1,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.15,<1"]
 
 [project.scripts]
 airgap-agent = "airgap_agent.cli:app"
